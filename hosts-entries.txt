@@ -1,0 +1,9 @@
+# Infra - local testing (admin tools only)
+# Example for DOMAIN=local.com. If DOMAIN differs, replace local.com accordingly.
+# Copy these lines into C:\Windows\System32\drivers\etc\hosts (run Notepad as Administrator)
+# Add your app domains (e.g. 127.0.0.1 myapp.local.com) as needed
+127.0.0.1 pgadmin.db.local.com
+127.0.0.1 redis.db.local.com
+127.0.0.1 docker.local.com
+127.0.0.1 uptime.local.com
+127.0.0.1 traefik.local.com

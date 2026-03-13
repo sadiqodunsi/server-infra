@@ -1,0 +1,23 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+traefik/auth/.htpasswd
+redis/.users.acl
+
+# Traefik certificate storage (contains private keys)
+traefik/letsencrypt/
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Generated backups
+backups/
+

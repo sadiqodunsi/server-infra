@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Server Infra Postgres backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=server-infra-pg-backup.service
+
+[Install]
+WantedBy=timers.target

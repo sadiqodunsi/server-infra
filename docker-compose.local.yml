@@ -1,0 +1,89 @@
+# =============================================================================
+# Local Testing Override - HTTP Only (No SSL)
+# =============================================================================
+# Use with: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# This override:
+# - Disables HTTP-to-HTTPS redirect (so HTTP works on port 80)
+# - Adds HTTP routers for all services (no SSL needed locally)
+# - Exposes Postgres/Redis ports on loopback only (for IDE, CLI, pgAdmin direct connect)
+# - Requires hosts file entries (see README)
+# =============================================================================
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  traefik:
+    command:
+      # --- API & Dashboard ---
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      # --- Docker Provider ---
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traefik-network"
+      # --- Entry Points ---
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # No HTTP→HTTPS redirect for local (Let's Encrypt won't work for local domains)
+      # No ACME - base routers (with tls.certresolver=le) are disabled; we use *-local routers (HTTP only)
+      # --- Logging ---
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--ping=true"
+    labels:
+      # Override replaces base labels entirely. We only define HTTP router for local.
+      # No tls.certresolver needed - HTTP doesn't use TLS.
+      - "traefik.enable=true"
+      # - "traefik.http.middlewares.admin-auth.basicauth.usersfile=/etc/traefik/auth/.htpasswd"
+      # - "traefik.http.middlewares.admin-ipallowlist.ipallowlist.sourcerange=${ADMIN_IP_ALLOWLIST:-127.0.0.1/32}"
+      # HTTP router - dashboard at http://traefik.<DOMAIN>
+      - "traefik.http.routers.traefik-dashboard-local.rule=Host(`traefik.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.traefik-dashboard-local.entrypoints=web"
+      - "traefik.http.routers.traefik-dashboard-local.service=api@internal"
+      # - "traefik.http.routers.traefik-dashboard-local.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.routers.traefik-dashboard-local.priority=200"
+
+  pgadmin:
+    # HTTP-only router (distinct name) - base pgadmin has tls.certresolver=le, gets disabled without ACME
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin-local.rule=Host(`pgadmin.db.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.pgadmin-local.entrypoints=web"
+      - "traefik.http.routers.pgadmin-local.service=pgadmin"
+      # - "traefik.http.routers.pgadmin-local.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
+  redisinsight:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.redisinsight-local.rule=Host(`redis.db.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.redisinsight-local.entrypoints=web"
+      - "traefik.http.routers.redisinsight-local.service=redisinsight"
+      # - "traefik.http.routers.redisinsight-local.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
+
+  portainer:
+    labels:
+      - "traefik.enable=${PORTAINER_EXPOSE:-false}"
+      - "traefik.http.routers.portainer-local.rule=Host(`docker.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.portainer-local.entrypoints=web"
+      - "traefik.http.routers.portainer-local.service=portainer"
+      # - "traefik.http.routers.portainer-local.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+  uptime-kuma:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.uptime-kuma-local.rule=Host(`uptime.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.uptime-kuma-local.entrypoints=web"
+      - "traefik.http.routers.uptime-kuma-local.service=uptime-kuma"
+      # - "traefik.http.routers.uptime-kuma-local.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"

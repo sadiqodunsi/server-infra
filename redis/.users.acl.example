@@ -1,0 +1,4 @@
+user default off resetkeys resetchannels -@all
+user redis_admin on >CHANGE_ME_REDIS_ADMIN_PASSWORD ~* &* +@all -@dangerous +info
+user app_one on >CHANGE_ME_APP_ONE_PASSWORD ~app_one:* &* +@all -@dangerous +info
+user app_two on >CHANGE_ME_APP_TWO_PASSWORD ~app_two:* &* +@all -@dangerous +info

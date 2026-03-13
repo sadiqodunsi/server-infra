@@ -1,0 +1,51 @@
+# =============================================================================
+# Example: Extend infra with a new app
+# =============================================================================
+# Copy to your app folder and customize. Run from infra root:
+#   docker compose -f apps/example-app/docker-compose.yml --env-file apps/example-app/.env up -d
+#
+# App domain (set in app's .env or passed via --env-file, not committed):
+#
+#   Pattern A - Full domain per app:
+#     API_DOMAIN=api.example.com (prod) or staging-api.example.com (staging)
+#     Rule: Host(`${API_DOMAIN}`)
+#
+#   Pattern B - Prefix for staging:
+#     DOMAIN_PREFIX= (prod) or DOMAIN_PREFIX=staging- (staging)
+#     Rule: Host(`${DOMAIN_PREFIX}api.example.com`)
+# =============================================================================
+
+services:
+  example-app:
+    image: your-registry/example-app:1.0.0
+    # or: build: .
+    environment:
+      # Connect to infra's shared Postgres and Redis with app-specific DB credentials.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      APP_DB_NAME: ${APP_DB_NAME}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Required: use a named Redis ACL user for this app.
+      REDIS_USERNAME: ${REDIS_USERNAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # Keep all app keys under a unique prefix. For BullMQ, use the same prefix in your queue config.
+      REDIS_PREFIX: ${REDIS_PREFIX:-example-app}
+    networks:
+      - traefik-network
+      - backend-network
+    labels:
+      - "traefik.enable=true"
+      # Pattern B example: DOMAIN_PREFIX= or staging-
+      - "traefik.http.routers.example-app.rule=Host(`${DOMAIN_PREFIX:-}app.example.com`)"
+      - "traefik.http.routers.example-app.entrypoints=websecure"
+      - "traefik.http.routers.example-app.tls.certresolver=le"
+      - "traefik.http.services.example-app.loadbalancer.server.port=3000"
+
+networks:
+  traefik-network:
+    external: true
+  backend-network:
+    external: true

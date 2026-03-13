@@ -1,0 +1,9 @@
+[Unit]
+Description=Server Infra Postgres backup
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/server-infra
+ExecStart=/bin/bash /opt/server-infra/scripts/pg-backup.sh
