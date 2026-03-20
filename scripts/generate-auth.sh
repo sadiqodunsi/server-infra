@@ -21,23 +21,37 @@ PASSWORD="${2:-}"
 
 mkdir -p "$AUTH_DIR"
 echo "Creating .htpasswd for user: $USERNAME"
+TMP_OUTPUT="$(mktemp)"
+
+cleanup() {
+    rm -f "$TMP_OUTPUT"
+}
+trap cleanup EXIT
 
 # Use Docker to run htpasswd if not available locally
 if command -v htpasswd &> /dev/null; then
     if [ -n "$PASSWORD" ]; then
-        htpasswd -nbB "$USERNAME" "$PASSWORD" | tee "$AUTH_DIR/.htpasswd"
+        htpasswd -nbB "$USERNAME" "$PASSWORD" > "$TMP_OUTPUT"
     else
         echo "Enter password (will not echo):"
-        htpasswd -nbB "$USERNAME" | tee "$AUTH_DIR/.htpasswd"
+        htpasswd -nB "$USERNAME" > "$TMP_OUTPUT"
     fi
 else
     if [ -n "$PASSWORD" ]; then
-        docker run --rm httpd:alpine htpasswd -nbB "$USERNAME" "$PASSWORD" | tee "$AUTH_DIR/.htpasswd"
+        docker run --rm httpd:alpine htpasswd -nbB "$USERNAME" "$PASSWORD" > "$TMP_OUTPUT"
     else
         echo "Enter password (will not echo):"
-        docker run --rm -it httpd:alpine htpasswd -nbB "$USERNAME" | tee "$AUTH_DIR/.htpasswd"
+        docker run --rm -it httpd:alpine htpasswd -nB "$USERNAME" > "$TMP_OUTPUT"
     fi
 fi
 
+# Guardrail: refuse to write invalid output (e.g., usage text) into .htpasswd
+if ! grep -Eq "^${USERNAME}:\$2[aby]\$" "$TMP_OUTPUT"; then
+    echo "Failed to generate a valid bcrypt htpasswd entry for user '$USERNAME'." >&2
+    echo "Aborting without writing $AUTH_DIR/.htpasswd" >&2
+    exit 1
+fi
+
+cp "$TMP_OUTPUT" "$AUTH_DIR/.htpasswd"
 chmod 600 "$AUTH_DIR/.htpasswd"
 echo "Created $AUTH_DIR/.htpasswd - ensure this file is in .gitignore!"

@@ -58,6 +58,7 @@ if ($missingHostnames.Count -eq 0) {
 }
 
 $entries = @("")
+$entries += "# Added by server-infra/scripts/add-hosts.ps1"
 $entries += "# Server Infra - local testing (admin tools only)"
 foreach ($hostname in $missingHostnames) {
     $entries += "127.0.0.1 $hostname"

@@ -562,15 +562,68 @@ Regenerate `.htpasswd`:
 
 ## 11) Extending Infra with New Apps
 
+**Backbone principle:** This server-infra is the single entry point. Traefik is the only reverse proxy: all public HTTP/HTTPS traffic goes through it. Apps (Node APIs, React SPAs, etc.) do not add their own reverse proxy in front of Traefik; they attach to `traefik-network`, expose a port, and register routes via Traefik labels.
+
 Each app should:
 
 - attach to `traefik-network` for HTTP routing
-- attach to `backend-network` for Redis/Postgres
-- use app-specific Postgres DB/user
-- use app-specific Redis ACL user + prefix
-- define app Traefik labels
+- attach to `backend-network` only if it needs Redis/Postgres
+- use app-specific Postgres DB/user and Redis ACL user + prefix when using backend
+- define app Traefik labels (Host rule, entrypoints, TLS, service port)
 
-Deploy example:
+### React / static SPAs
+
+- **Route the React app with Traefik** — same pattern as the Node app. Add a subdomain (e.g. `app.example.com`), point DNS to the server, and use Traefik labels so Traefik routes that host to your React container.
+- **Inside the React image**, use a small web server (e.g. nginx or `serve`) only to **serve the built static files** and SPA fallback (e.g. `try_files $uri /index.html`). That server is not a reverse proxy; Traefik remains the only one. The container just needs to listen on one port (e.g. 80); Traefik forwards traffic to it.
+
+Example pattern for a React app’s `docker-compose.yml` (run from infra root with the app’s env):
+
+```yaml
+services:
+  my-react-app:
+    image: your-registry/my-react-app:1.0.0
+    networks:
+      - traefik-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.my-react-app.rule=Host(`app.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.my-react-app.entrypoints=websecure"
+      - "traefik.http.routers.my-react-app.tls.certresolver=le"
+      - "traefik.http.services.my-react-app.loadbalancer.server.port=80"
+networks:
+  traefik-network:
+    external: true
+```
+
+**Redis user** (from infra root; then `docker compose up -d redis`):
+
+```bash
+# Linux/macOS
+./scripts/manage-redis-acl.sh my_api "STRONG_PASSWORD" my_api
+
+# Windows
+.\scripts\manage-redis-acl.ps1 -Username my_api -Password "STRONG_PASSWORD" -Prefix my_api
+```
+
+**Postgres DB and user** (set `APP_DB_NAME`, `APP_DB_USER`, `APP_DB_PASSWORD` then run from infra root):
+
+```bash
+docker compose exec postgres psql -U "$POSTGRES_USER" -d postgres -c "
+  CREATE USER ${APP_DB_USER} WITH PASSWORD '${APP_DB_PASSWORD}';
+  CREATE DATABASE ${APP_DB_NAME} OWNER ${APP_DB_USER};
+  GRANT CONNECT ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
+  GRANT ALL PRIVILEGES ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
+"
+docker compose exec postgres psql -U "$POSTGRES_USER" -d "$APP_DB_NAME" -c "
+  GRANT ALL ON SCHEMA public TO ${APP_DB_USER};
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${APP_DB_USER};
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${APP_DB_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${APP_DB_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${APP_DB_USER};
+"
+```
+
+**Deploy:**
 
 ```bash
 docker compose -f apps/my-app/docker-compose.yml --env-file apps/my-app/.env up -d

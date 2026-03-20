@@ -7,6 +7,7 @@
 # - Disables HTTP-to-HTTPS redirect (so HTTP works on port 80)
 # - Adds HTTP routers for all services (no SSL needed locally)
 # - Exposes Postgres/Redis ports on loopback only (for IDE, CLI, pgAdmin direct connect)
+# - Binds both IPv4 (127.0.0.1) and IPv6 (::1) so "localhost" works regardless of resolution
 # - Requires hosts file entries (see README)
 # =============================================================================
 
@@ -14,10 +15,12 @@ services:
   postgres:
     ports:
       - "127.0.0.1:5432:5432"
+      - "[::1]:5432:5432"
 
   redis:
     ports:
       - "127.0.0.1:6379:6379"
+      - "[::1]:6379:6379"
 
   traefik:
     command:
