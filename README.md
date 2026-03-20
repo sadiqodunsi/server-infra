@@ -24,6 +24,7 @@ Run through this checklist before first production deploy:
 - [ ] DNS A records for admin subdomains point to this EC2 instance
 - [ ] EC2 security group allows only `22` (restricted), `80`, and `443`
 - [ ] Secret files exist and are permissioned to owner-only (`chmod 600`)
+- [ ] Host `logrotate` is installed and Traefik access-log rotation is configured (`./scripts/setup-traefik-logrotate.sh`)
 - [ ] `PORTAINER_EXPOSE=false` unless in an active maintenance window
 - [ ] **Recommended:** backup is configured (`S3_BUCKET`/`AWS_REGION` as needed + systemd timer enabled)
 - [ ] Backup path tested (`./scripts/pg-backup.sh`) and restore command validated
@@ -78,6 +79,7 @@ Run through this checklist before first production deploy:
 | `scripts/add-hosts.ps1`                                        | Add hosts entries from `.env` `DOMAIN` (Windows local only) | Yes      | No          |
 | `scripts/manage-redis-acl.ps1` / `scripts/manage-redis-acl.sh` | Add/update per-app Redis ACL users                          | Optional | Recommended |
 | `scripts/pg-backup.sh`                                         | Postgres backup; optional S3 upload                         | Optional | Recommended |
+| `scripts/setup-traefik-logrotate.sh`                           | Install host logrotate for Traefik `access.log` volume file | No       | Recommended |
 
 Important:
 
@@ -105,6 +107,8 @@ docker compose ps
 cd /opt/server-infra
 ./scripts/setup.sh
 ./scripts/generate-auth.sh admin
+sudo apt-get update && sudo apt-get install -y logrotate
+./scripts/setup-traefik-logrotate.sh
 docker compose up -d
 docker compose ps
 ```
@@ -330,6 +334,19 @@ sudo systemctl enable --now server-infra-pg-backup.timer
 systemctl list-timers server-infra-pg-backup.timer
 ```
 
+### Step 7: Recommended Traefik access log rotation
+
+Docker `json-file` rotation already covers container stdout/stderr logs.
+Traefik `access.log` is a separate file in the `traefik-logs` volume and should
+be rotated via host `logrotate`.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y logrotate
+./scripts/setup-traefik-logrotate.sh
+sudo logrotate -d /etc/logrotate.d/server-infra-traefik-access
+```
+
 ---
 
 ## 6) Day-2 Operations
@@ -351,6 +368,10 @@ docker compose logs -f traefik
 docker compose logs --tail=200 postgres
 docker compose ps
 ```
+
+Traefik access logs are written to `/var/log/traefik/access.log` inside the
+container and backed by the `traefik-logs` Docker volume on the host. They are
+rotated by host `logrotate` when `scripts/setup-traefik-logrotate.sh` is used.
 
 ### Basic service checks
 
@@ -651,7 +672,8 @@ server-infra/
 │   ├── generate-auth.ps1 / generate-auth.sh
 │   ├── manage-redis-acl.ps1 / manage-redis-acl.sh
 │   ├── add-hosts.ps1
-│   └── pg-backup.sh
+│   ├── pg-backup.sh
+│   └── setup-traefik-logrotate.sh
 └── apps/
     └── example-app/
 ```

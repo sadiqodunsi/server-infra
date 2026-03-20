@@ -21,7 +21,7 @@ services:
   # Dashboard: https://traefik.<DOMAIN> (e.g. traefik.example.com)
   # ---------------------------------------------------------------------------
   traefik:
-    image: traefik:v3.6.9
+    image: traefik:v3.6.11
     container_name: traefik
     restart: unless-stopped
     logging: *default-logging
