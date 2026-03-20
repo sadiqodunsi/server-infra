@@ -59,8 +59,9 @@ services:
       - "--certificatesresolvers.le.acme.tlschallenge=true"
       - "--certificatesresolvers.le.acme.email=${ACME_EMAIL}"
       - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
-      # Use staging for testing (uncomment to avoid rate limits):
-      # - "--certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      # ACME CA server (prod default). Override in .env for staging/debug:
+      # ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+      - "--certificatesresolvers.le.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}"
       # --- Logging ---
       - "--log.level=INFO"
       - "--accesslog=true"

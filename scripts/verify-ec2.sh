@@ -153,6 +153,8 @@ check_required_env "REDIS_MAXMEMORY"
 check_required_env "REDIS_MAXMEMORY_POLICY"
 
 DOMAIN_FROM_ENV="$(get_env_value "DOMAIN" || true)"
+PG_USER_FROM_ENV="$(get_env_value "POSTGRES_USER" || true)"
+PG_DB_FROM_ENV="$(get_env_value "POSTGRES_DB" || true)"
 VERIFY_DOMAIN="${VERIFY_DOMAIN:-$DOMAIN_FROM_ENV}"
 if [ -n "${VERIFY_DOMAIN:-}" ]; then
   pass "Using domain for endpoint checks: $VERIFY_DOMAIN"
@@ -166,6 +168,22 @@ if docker compose config >/dev/null 2>&1; then
   pass "docker compose config is valid"
 else
   fail "docker compose config failed (inspect output with: docker compose config)"
+fi
+
+section "Redis ACL mount readability"
+
+if [ -n "$(docker compose ps -q redis 2>/dev/null || true)" ]; then
+  if docker compose exec -T redis sh -lc 'test -r /usr/local/etc/redis/.users.acl' >/dev/null 2>&1; then
+    pass "Redis container can read mounted ACL file"
+  else
+    fail "Redis container cannot read mounted ACL file (/usr/local/etc/redis/.users.acl)"
+  fi
+else
+  if docker compose run --rm --no-deps --entrypoint sh redis -lc 'test -r /usr/local/etc/redis/.users.acl' >/dev/null 2>&1; then
+    pass "Redis service can read mounted ACL file (startup precheck)"
+  else
+    fail "Redis service cannot read mounted ACL file; fix host file perms/ACLs for redis/.users.acl"
+  fi
 fi
 
 section "Container status"
@@ -201,10 +219,12 @@ done
 section "In-container service checks"
 
 if docker compose ps -q postgres >/dev/null 2>&1 && [ -n "$(docker compose ps -q postgres 2>/dev/null)" ]; then
-  if docker compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" -c "SELECT 1;" >/dev/null 2>&1; then
+  if [ -z "$PG_USER_FROM_ENV" ] || [ -z "$PG_DB_FROM_ENV" ]; then
+    warn "Skipping Postgres query check (.env POSTGRES_USER/POSTGRES_DB missing)"
+  elif docker compose exec -T postgres psql -U "$PG_USER_FROM_ENV" -d "$PG_DB_FROM_ENV" -c "SELECT 1;" >/dev/null 2>&1; then
     pass "Postgres responds to SELECT 1"
   else
-    warn "Postgres query check failed (credentials/db may not match yet)"
+    warn "Postgres query check failed (.env user/db: $PG_USER_FROM_ENV / $PG_DB_FROM_ENV)"
   fi
 else
   warn "Skipping Postgres query check (container not running)"
