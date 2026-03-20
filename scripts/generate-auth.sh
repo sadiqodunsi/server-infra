@@ -28,30 +28,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Use Docker to run htpasswd if not available locally
-if command -v htpasswd &> /dev/null; then
-    if [ -n "$PASSWORD" ]; then
-        htpasswd -nbB "$USERNAME" "$PASSWORD" > "$TMP_OUTPUT"
-    else
-        echo "Enter password (will not echo):"
-        htpasswd -nB "$USERNAME" > "$TMP_OUTPUT"
+# Mirror generate-auth.ps1 pattern: get password in script, then run non-interactive htpasswd.
+if [ -z "$PASSWORD" ]; then
+    read -r -s -p "Enter password for $USERNAME: " PASSWORD
+    echo
+    read -r -s -p "Confirm password for $USERNAME: " PASSWORD_CONFIRM
+    echo
+    if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then
+        echo "Passwords do not match." >&2
+        exit 1
     fi
-else
-    if [ -n "$PASSWORD" ]; then
-        docker run --rm httpd:alpine htpasswd -nbB "$USERNAME" "$PASSWORD" > "$TMP_OUTPUT"
-    else
-        echo "Enter password (will not echo):"
-        docker run --rm -it httpd:alpine htpasswd -nB "$USERNAME" > "$TMP_OUTPUT"
+    if [ -z "$PASSWORD" ]; then
+        echo "Password cannot be empty." >&2
+        exit 1
     fi
 fi
 
-# Guardrail: refuse to write invalid output (e.g., usage text) into .htpasswd
-if ! grep -Eq "^${USERNAME}:\$2[aby]\$" "$TMP_OUTPUT"; then
+echo "Generating .htpasswd using Docker..."
+docker run --rm httpd:alpine htpasswd -nbB "$USERNAME" "$PASSWORD" > "$TMP_OUTPUT"
+
+# Guardrail: refuse to write invalid output (e.g., usage text) into .htpasswd.
+# We normalize CRLF and extract only a valid bcrypt entry line for this user.
+VALID_ENTRY="$(
+    tr -d '\r' < "$TMP_OUTPUT" \
+      | awk -F: -v u="$USERNAME" '$1 == u && $2 ~ /^\$2[aby]\$/ { print $0; exit }'
+)"
+
+if [ -z "$VALID_ENTRY" ]; then
     echo "Failed to generate a valid bcrypt htpasswd entry for user '$USERNAME'." >&2
     echo "Aborting without writing $AUTH_DIR/.htpasswd" >&2
     exit 1
 fi
 
-cp "$TMP_OUTPUT" "$AUTH_DIR/.htpasswd"
+printf "%s\n" "$VALID_ENTRY" > "$AUTH_DIR/.htpasswd"
 chmod 600 "$AUTH_DIR/.htpasswd"
 echo "Created $AUTH_DIR/.htpasswd - ensure this file is in .gitignore!"
