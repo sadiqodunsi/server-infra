@@ -108,7 +108,7 @@ cd /opt/server-infra
 ./scripts/setup.sh
 ./scripts/generate-auth.sh admin
 sudo apt-get update && sudo apt-get install -y logrotate
-./scripts/setup-traefik-logrotate.sh
+sudo ./scripts/setup-traefik-logrotate.sh
 docker compose up -d
 docker compose ps
 ```
@@ -300,6 +300,18 @@ Stop after maintenance:
 docker compose stop portainer
 ```
 
+Safe maintenance workflow checklist:
+
+- [ ] Confirm this is an active maintenance window and Portainer is actually needed
+- [ ] Ensure `ADMIN_IP_ALLOWLIST` includes only current trusted admin IP/CIDR values
+- [ ] Set `PORTAINER_EXPOSE=true` in `.env`
+- [ ] Start only required services: `docker compose --profile admin up -d portainer traefik`
+- [ ] Verify access through `https://docker.<DOMAIN>` (Traefik BasicAuth + Portainer auth)
+- [ ] Perform required maintenance actions and capture notes/screenshots for audit trail
+- [ ] Stop Portainer immediately after maintenance: `docker compose stop portainer`
+- [ ] Set `PORTAINER_EXPOSE=false` in `.env`
+- [ ] Confirm route is no longer exposed (expect 404/unreachable for `docker.<DOMAIN>`)
+
 Reset Portainer admin password if needed:
 
 ```bash
@@ -343,7 +355,7 @@ be rotated via host `logrotate`.
 ```bash
 sudo apt-get update
 sudo apt-get install -y logrotate
-./scripts/setup-traefik-logrotate.sh
+sudo ./scripts/setup-traefik-logrotate.sh
 sudo logrotate -d /etc/logrotate.d/server-infra-traefik-access
 ```
 
@@ -372,6 +384,33 @@ docker compose ps
 Traefik access logs are written to `/var/log/traefik/access.log` inside the
 container and backed by the `traefik-logs` Docker volume on the host. They are
 rotated by host `logrotate` when `scripts/setup-traefik-logrotate.sh` is used.
+
+### Common maintenance commands
+
+```bash
+# Force recreate a single service (refresh labels/mounts/env without full down/up)
+docker compose up -d --force-recreate traefik
+
+# Force recreate entire stack
+docker compose up -d --force-recreate
+
+# Follow Traefik runtime logs (stdout/stderr)
+docker compose logs -f traefik
+
+# Clear all Docker json-file logs (stdout/stderr) for running containers
+sudo sh -c 'truncate -s 0 /var/lib/docker/containers/*/*-json.log'
+
+# View Traefik access log from the volume
+ACCESS_LOG="$(docker volume inspect traefik-logs -f '{{.Mountpoint}}')/access.log"
+sudo tail -f "$ACCESS_LOG"
+
+# Clear only Traefik access log file
+sudo truncate -s 0 "$ACCESS_LOG"
+
+# Test and force-run Traefik access logrotate config
+sudo logrotate -d /etc/logrotate.d/server-infra-traefik-access
+sudo logrotate -f /etc/logrotate.d/server-infra-traefik-access
+```
 
 ### Basic service checks
 

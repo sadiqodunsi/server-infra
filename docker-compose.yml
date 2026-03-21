@@ -182,14 +182,14 @@ services:
     container_name: pgadmin
     restart: unless-stopped
     logging: *default-logging
-    mem_limit: 256m
-    mem_reservation: 128m
+    mem_limit: 512m
+    mem_reservation: 256m
     security_opt:
       - no-new-privileges:true
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_SERVER_MODE: "True"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "True"
     volumes:
       - pgadmin-data:/var/lib/pgadmin
