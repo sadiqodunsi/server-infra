@@ -388,6 +388,13 @@ rotated by host `logrotate` when `scripts/setup-traefik-logrotate.sh` is used.
 ### Common maintenance commands
 
 ```bash
+# Pull latest infra code and apply changes to running stack
+git fetch origin main
+git pull --ff-only origin main
+docker compose pull
+docker compose up -d --remove-orphans
+docker compose ps
+
 # Force recreate a single service (refresh labels/mounts/env without full down/up)
 docker compose up -d --force-recreate traefik
 
@@ -629,7 +636,8 @@ Each app should:
 - attach to `traefik-network` for HTTP routing
 - attach to `backend-network` only if it needs Redis/Postgres
 - use app-specific Postgres DB/user and Redis ACL user + prefix when using backend
-- define app Traefik labels (Host rule, entrypoints, TLS, service port)
+- define app Traefik labels (Host rule, entrypoints, explicit router->service mapping, service port; TLS defaults come from Traefik `websecure` entrypoint)
+- set `traefik.docker.network=traefik-network` on app labels as an explicit safety guard (especially for multi-network containers)
 
 ### React / static SPAs
 
@@ -646,9 +654,10 @@ services:
       - traefik-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.my-react-app.rule=Host(`app.${DOMAIN:-example.com}`)"
+      - "traefik.docker.network=traefik-network"
+      - "traefik.http.routers.my-react-app.rule=Host(`${APP_HOST}`)"
       - "traefik.http.routers.my-react-app.entrypoints=websecure"
-      - "traefik.http.routers.my-react-app.tls.certresolver=le"
+      - "traefik.http.routers.my-react-app.service=my-react-app"
       - "traefik.http.services.my-react-app.loadbalancer.server.port=80"
 networks:
   traefik-network:

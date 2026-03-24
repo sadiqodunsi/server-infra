@@ -50,6 +50,10 @@ services:
       # web=HTTP (80), websecure=HTTPS (443)
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      # Default TLS for all routers bound to websecure (no per-router tls=true needed)
+      - "--entrypoints.websecure.http.tls=true"
+      # Use Let's Encrypt resolver by default on websecure
+      - "--entrypoints.websecure.http.tls.certresolver=le"
       # Redirect all HTTP traffic to HTTPS
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
@@ -93,7 +97,6 @@ services:
       # HTTPS router - dashboard at https://traefik.<DOMAIN>
       - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
-      - "traefik.http.routers.traefik-dashboard.tls.certresolver=le"
       - "traefik.http.routers.traefik-dashboard.service=api@internal"
       - "traefik.http.routers.traefik-dashboard.middlewares=admin-ipallowlist,admin-auth"
       - "traefik.http.routers.traefik-dashboard.priority=100"
@@ -205,7 +208,6 @@ services:
       # HTTPS router - pgAdmin at https://pgadmin.db.<DOMAIN>
       - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.db.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.pgadmin.entrypoints=websecure"
-      - "traefik.http.routers.pgadmin.tls.certresolver=le"
       - "traefik.http.routers.pgadmin.service=pgadmin"
       - "traefik.http.routers.pgadmin.middlewares=admin-ipallowlist,admin-auth"
       # Container port pgAdmin listens on
@@ -239,7 +241,6 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.redisinsight.rule=Host(`redis.db.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.redisinsight.entrypoints=websecure"
-      - "traefik.http.routers.redisinsight.tls.certresolver=le"
       - "traefik.http.routers.redisinsight.service=redisinsight"
       - "traefik.http.routers.redisinsight.middlewares=admin-ipallowlist,admin-auth"
       - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
@@ -273,7 +274,6 @@ services:
       # HTTPS router - Portainer at https://docker.<DOMAIN>
       - "traefik.http.routers.portainer.rule=Host(`docker.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.portainer.entrypoints=websecure"
-      - "traefik.http.routers.portainer.tls.certresolver=le"
       - "traefik.http.routers.portainer.service=portainer"
       - "traefik.http.routers.portainer.middlewares=admin-ipallowlist,admin-auth"
       # Portainer listens on 9000 inside container
@@ -305,7 +305,6 @@ services:
       # HTTPS router - Uptime Kuma at https://uptime.<DOMAIN>
       - "traefik.http.routers.uptime-kuma.rule=Host(`uptime.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
-      - "traefik.http.routers.uptime-kuma.tls.certresolver=le"
       - "traefik.http.routers.uptime-kuma.service=uptime-kuma"
       - "traefik.http.routers.uptime-kuma.middlewares=admin-ipallowlist,admin-auth"
       # Uptime Kuma listens on 3001 inside container

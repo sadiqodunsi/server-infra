@@ -41,7 +41,6 @@ services:
       # Pattern B example: DOMAIN_PREFIX= or staging-
       - "traefik.http.routers.example-app.rule=Host(`${DOMAIN_PREFIX:-}app.example.com`)"
       - "traefik.http.routers.example-app.entrypoints=websecure"
-      - "traefik.http.routers.example-app.tls.certresolver=le"
       - "traefik.http.services.example-app.loadbalancer.server.port=3000"
 
 networks:

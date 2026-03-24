@@ -35,7 +35,7 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       # No HTTP→HTTPS redirect for local (Let's Encrypt won't work for local domains)
-      # No ACME - base routers (with tls.certresolver=le) are disabled; we use *-local routers (HTTP only)
+      # No ACME/TLS defaults on websecure in local; we use *-local routers (HTTP only)
       # --- Logging ---
       - "--log.level=INFO"
       - "--accesslog=true"
@@ -43,7 +43,7 @@ services:
       - "--ping=true"
     labels:
       # Override replaces base labels entirely. We only define HTTP router for local.
-      # No tls.certresolver needed - HTTP doesn't use TLS.
+      # No TLS labels needed - HTTP doesn't use TLS.
       - "traefik.enable=true"
       # - "traefik.http.middlewares.admin-auth.basicauth.usersfile=/etc/traefik/auth/.htpasswd"
       # - "traefik.http.middlewares.admin-ipallowlist.ipallowlist.sourcerange=${ADMIN_IP_ALLOWLIST:-127.0.0.1/32}"
@@ -55,7 +55,7 @@ services:
       - "traefik.http.routers.traefik-dashboard-local.priority=200"
 
   pgadmin:
-    # HTTP-only router (distinct name) - base pgadmin has tls.certresolver=le, gets disabled without ACME
+    # HTTP-only router (distinct name) to keep local traffic on plain HTTP
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pgadmin-local.rule=Host(`pgadmin.db.${DOMAIN:-local.com}`)"
