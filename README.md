@@ -6,7 +6,7 @@ Services in this stack:
 
 - Traefik (reverse proxy + TLS)
 - Redis (shared cache/queue backend with ACL users)
-- Postgres (shared database server)
+- Postgres (shared database server, PostGIS-capable)
 - pgAdmin, RedisInsight, Uptime Kuma (admin/ops tools)
 - Portainer (maintenance-only via admin profile)
 
@@ -424,6 +424,15 @@ sudo logrotate -f /etc/logrotate.d/server-infra-traefik-access
 ```bash
 docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"
 docker compose exec redis redis-cli ping
+```
+
+### PostGIS support (spatial)
+
+The `postgres` service runs with PostGIS libraries available. To enable PostGIS in a specific database (one-time per DB), run:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS postgis;
+SELECT PostGIS_Version();
 ```
 
 ### Upgrade images
