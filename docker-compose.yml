@@ -149,7 +149,7 @@ services:
   # Access via: postgres:5432 from any container on backend-network.
   # ---------------------------------------------------------------------------
   postgres:
-    image: postgres:16.13-alpine3.23
+    image: postgis/postgis:16-3.5
     container_name: postgres
     restart: unless-stopped
     logging: *default-logging
@@ -165,6 +165,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     networks:
       - backend-network
     healthcheck:
