@@ -161,9 +161,11 @@ check_required_env "REDIS_MAXMEMORY"
 check_required_env "REDIS_MAXMEMORY_POLICY"
 
 DOMAIN_FROM_ENV="$(get_env_value "DOMAIN" || true)"
+INFRA_SUFFIX_FROM_ENV="$(get_env_value "INFRA_HOST_SUFFIX" || true)"
 PG_USER_FROM_ENV="$(get_env_value "POSTGRES_USER" || true)"
 PG_DB_FROM_ENV="$(get_env_value "POSTGRES_DB" || true)"
 VERIFY_DOMAIN="${VERIFY_DOMAIN:-$DOMAIN_FROM_ENV}"
+INFRA_HOST_SUFFIX="${INFRA_HOST_SUFFIX:-$INFRA_SUFFIX_FROM_ENV}"
 if [ -n "${VERIFY_DOMAIN:-}" ]; then
   pass "Using domain for endpoint checks: $VERIFY_DOMAIN"
 else
@@ -252,10 +254,10 @@ section "Endpoint checks (optional)"
 
 if [ -n "${VERIFY_DOMAIN:-}" ]; then
   if command_exists getent; then
-    if getent hosts "traefik.${VERIFY_DOMAIN}" >/dev/null 2>&1; then
-      pass "DNS resolves: traefik.${VERIFY_DOMAIN}"
+    if getent hosts "traefik${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" >/dev/null 2>&1; then
+      pass "DNS resolves: traefik${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"
     else
-      warn "DNS does not resolve yet: traefik.${VERIFY_DOMAIN}"
+      warn "DNS does not resolve yet: traefik${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"
     fi
   else
     warn "getent not found; skipping DNS resolution checks"
@@ -263,7 +265,7 @@ if [ -n "${VERIFY_DOMAIN:-}" ]; then
 
   if [ "${CHECK_HTTP:-0}" = "1" ]; then
     if command_exists curl; then
-      for host in "traefik.${VERIFY_DOMAIN}" "pgadmin.db.${VERIFY_DOMAIN}" "redis.db.${VERIFY_DOMAIN}" "uptime.${VERIFY_DOMAIN}"; do
+      for host in "traefik${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" "pgadmin${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" "redis${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" "uptime${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"; do
         code="$(curl -k -s -o /dev/null -m 8 -w "%{http_code}" "https://${host}" || true)"
         if [ "$code" = "401" ] || [ "$code" = "200" ] || [ "$code" = "302" ] || [ "$code" = "404" ]; then
           pass "HTTPS reachable: ${host} (HTTP ${code})"

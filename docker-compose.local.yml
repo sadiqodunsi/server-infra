@@ -28,7 +28,7 @@ services:
       - "--ping=true"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik-dashboard-local.rule=Host(`traefik.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.traefik-dashboard-local.rule=Host(`traefik${INFRA_HOST_SUFFIX:-}.${DOMAIN:-local.com}`)"
       - "traefik.http.routers.traefik-dashboard-local.entrypoints=web"
       - "traefik.http.routers.traefik-dashboard-local.service=api@internal"
       - "traefik.http.routers.traefik-dashboard-local.priority=200"
@@ -36,7 +36,7 @@ services:
   pgadmin:
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.pgadmin-local.rule=Host(`pgadmin.db.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.pgadmin-local.rule=Host(`pgadmin${INFRA_HOST_SUFFIX:-}.${DOMAIN:-local.com}`)"
       - "traefik.http.routers.pgadmin-local.entrypoints=web"
       - "traefik.http.routers.pgadmin-local.service=pgadmin"
       - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
@@ -44,7 +44,7 @@ services:
   redisinsight:
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.redisinsight-local.rule=Host(`redis.db.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.redisinsight-local.rule=Host(`redis${INFRA_HOST_SUFFIX:-}.${DOMAIN:-local.com}`)"
       - "traefik.http.routers.redisinsight-local.entrypoints=web"
       - "traefik.http.routers.redisinsight-local.service=redisinsight"
       - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
@@ -52,7 +52,7 @@ services:
   portainer:
     labels:
       - "traefik.enable=${PORTAINER_EXPOSE:-false}"
-      - "traefik.http.routers.portainer-local.rule=Host(`docker.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.portainer-local.rule=Host(`docker${INFRA_HOST_SUFFIX:-}.${DOMAIN:-local.com}`)"
       - "traefik.http.routers.portainer-local.entrypoints=web"
       - "traefik.http.routers.portainer-local.service=portainer"
       - "traefik.http.services.portainer.loadbalancer.server.port=9000"
@@ -60,7 +60,7 @@ services:
   uptime-kuma:
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.uptime-kuma-local.rule=Host(`uptime.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.uptime-kuma-local.rule=Host(`uptime${INFRA_HOST_SUFFIX:-}.${DOMAIN:-local.com}`)"
       - "traefik.http.routers.uptime-kuma-local.entrypoints=web"
       - "traefik.http.routers.uptime-kuma-local.service=uptime-kuma"
       - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"

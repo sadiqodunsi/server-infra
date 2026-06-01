@@ -9,10 +9,12 @@ $RootDir = Split-Path -Parent $ScriptDir
 $EnvPath = Join-Path $RootDir ".env"
 $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
 
-function Get-DomainFromEnv {
+function Get-EnvValue {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Key
     )
 
     if (-not (Test-Path $Path)) {
@@ -20,7 +22,7 @@ function Get-DomainFromEnv {
     }
 
     foreach ($line in Get-Content $Path) {
-        if ($line -match '^\s*DOMAIN\s*=\s*(.+?)\s*$') {
+        if ($line -match "^\s*$([regex]::Escape($Key))\s*=\s*(.+?)\s*$") {
             $value = $matches[1].Trim().Trim('"').Trim("'")
             if (-not [string]::IsNullOrWhiteSpace($value)) {
                 return $value
@@ -31,17 +33,22 @@ function Get-DomainFromEnv {
     return $null
 }
 
-$domain = Get-DomainFromEnv -Path $EnvPath
+$domain = Get-EnvValue -Path $EnvPath -Key "DOMAIN"
 if ([string]::IsNullOrWhiteSpace($domain)) {
     throw "DOMAIN is missing in .env. Set DOMAIN (for example DOMAIN=local.com) and run again."
 }
 
+$suffix = Get-EnvValue -Path $EnvPath -Key "INFRA_HOST_SUFFIX"
+if ($null -eq $suffix) {
+    $suffix = ""
+}
+
 $hostnames = @(
-    "pgadmin.db.$domain",
-    "redis.db.$domain",
-    "docker.$domain",
-    "uptime.$domain",
-    "traefik.$domain"
+    "pgadmin$suffix.$domain",
+    "redis$suffix.$domain",
+    "docker$suffix.$domain",
+    "uptime$suffix.$domain",
+    "traefik$suffix.$domain"
 )
 
 $content = Get-Content $hostsPath -Raw
@@ -53,7 +60,7 @@ foreach ($hostname in $hostnames) {
 }
 
 if ($missingHostnames.Count -eq 0) {
-    Write-Host "Server Infra hosts entries for '$domain' already exist. Skipping."
+    Write-Host "Server Infra hosts entries for '$domain' (suffix='$suffix') already exist. Skipping."
     exit 0
 }
 
@@ -65,4 +72,4 @@ foreach ($hostname in $missingHostnames) {
 }
 
 Add-Content -Path $hostsPath -Value ($entries -join [Environment]::NewLine)
-Write-Host "Added infra hosts entries for '$domain'. Add app domains as needed."
+Write-Host "Added infra hosts entries for '$domain' (INFRA_HOST_SUFFIX='$suffix'). Add app domains as needed."

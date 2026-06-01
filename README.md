@@ -44,8 +44,8 @@ Run through this checklist before first production deploy:
 | File                         | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
 | `docker-compose.yml`         | Production baseline: Traefik, Redis, admin UIs (no Postgres container) |
-| `docker-compose.staging.yml` | Staging: Postgres + pgAdmin `depends_on` (merge with baseline) |
-| `docker-compose.local.yml` | Local: HTTP Traefik routers + loopback Postgres/Redis ports   |
+| `docker-compose.staging.yml` | Staging: Postgres + pgAdmin `depends_on` (merge with baseline)         |
+| `docker-compose.local.yml`   | Local: HTTP Traefik routers + loopback Postgres/Redis ports            |
 
 ### Exposure model
 
@@ -60,6 +60,20 @@ Run through this checklist before first production deploy:
   - local HTTP routers are enabled for testing
 
 Use `COMPOSE_FILE` in `.env` or multiple `-f` flags to merge overlay files with the baseline.
+
+### Infra hostnames (Cloudflare-friendly)
+
+Admin URLs use a **single subdomain level** under one zone:
+
+`<service><INFRA_HOST_SUFFIX>.<DOMAIN>`
+
+| Environment | `.env`                                             | Example pgAdmin URL                   |
+| ----------- | -------------------------------------------------- | ------------------------------------- |
+| Production  | `DOMAIN=example.com`, `INFRA_HOST_SUFFIX=` (empty) | `https://pgadmin.example.com`         |
+| Staging     | `DOMAIN=example.com`, `INFRA_HOST_SUFFIX=-staging` | `https://pgadmin-staging.example.com` |
+| Local       | `DOMAIN=local.com`, `INFRA_HOST_SUFFIX=`           | `http://pgadmin.local.com`            |
+
+Create matching **proxied** DNS A/AAAA records in the `example.com` zone for each hostname Traefik routes.
 
 ### Authentication model
 
@@ -184,6 +198,7 @@ Minimum:
 
 ```bash
 DOMAIN=local.com
+INFRA_HOST_SUFFIX=
 PORTAINER_EXPOSE=false
 ACME_EMAIL=admin@example.com
 ADMIN_IP_ALLOWLIST=127.0.0.1/32
@@ -209,11 +224,11 @@ Run as Administrator:
 
 It adds:
 
-- `pgadmin.db.<DOMAIN>`
-- `redis.db.<DOMAIN>`
-- `docker.<DOMAIN>`
-- `uptime.<DOMAIN>`
-- `traefik.<DOMAIN>`
+- `pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN>` (e.g. `pgadmin-staging.example.com`)
+- `redis<INFRA_HOST_SUFFIX>.<DOMAIN>`
+- `docker<INFRA_HOST_SUFFIX>.<DOMAIN>`
+- `uptime<INFRA_HOST_SUFFIX>.<DOMAIN>`
+- `traefik<INFRA_HOST_SUFFIX>.<DOMAIN>`
 
 ### Step 5: Start local stack
 
@@ -227,10 +242,10 @@ Expected healthy services: `traefik`, `redis`, `postgres`.
 ### Step 6: Access local URLs
 
 - `http://traefik.<DOMAIN>`
-- `http://pgadmin.db.<DOMAIN>`
-- `http://redis.db.<DOMAIN>`
-- `http://uptime.<DOMAIN>`
-- `http://docker.<DOMAIN>` (only when Portainer is started)
+- `http://pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN>`
+- `http://redis<INFRA_HOST_SUFFIX>.<DOMAIN>`
+- `http://uptime<INFRA_HOST_SUFFIX>.<DOMAIN>`
+- `http://docker<INFRA_HOST_SUFFIX>.<DOMAIN>` (only when Portainer is started)
 
 ### Step 7: Portainer maintenance mode
 
@@ -286,11 +301,11 @@ systemctl list-timers server-infra-pg-backup.timer
   - `22` from restricted admin IPs
   - `80`, `443` from internet
 - DNS A records -> EC2 IP:
-  - `traefik.<DOMAIN>`
-  - `pgadmin.db.<DOMAIN>`
-  - `redis.db.<DOMAIN>`
-  - `uptime.<DOMAIN>`
-  - optional `docker.<DOMAIN>`
+  - `traefik<INFRA_HOST_SUFFIX>.<DOMAIN>`
+  - `pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN>`
+  - `redis<INFRA_HOST_SUFFIX>.<DOMAIN>`
+  - `uptime<INFRA_HOST_SUFFIX>.<DOMAIN>`
+  - optional `docker<INFRA_HOST_SUFFIX>.<DOMAIN>`
 - Docker + Compose installed
 
 ### Step 2: Bootstrap
