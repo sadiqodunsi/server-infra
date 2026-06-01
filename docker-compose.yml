@@ -148,7 +148,7 @@ services:
   # ---------------------------------------------------------------------------
   # Web UI for Postgres. Protected by BasicAuth.
   # Production: register your managed Postgres server in the UI manually.
-  # Staging: depends on the local postgres service via docker-compose.staging.yml.
+  # Staging: depends on postgres via docker-compose.staging.yml.
   # Domain: pgadmin.db.example.com (set via DOMAIN in .env)
   # ---------------------------------------------------------------------------
   pgadmin:

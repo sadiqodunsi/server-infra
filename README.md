@@ -44,10 +44,8 @@ Run through this checklist before first production deploy:
 | File                         | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
 | `docker-compose.yml`         | Production baseline: Traefik, Redis, admin UIs (no Postgres container) |
-| `docker-compose.staging.yml` | Staging entrypoint (`include`s baseline + `staging.overrides.yml`)   |
-| `docker-compose.staging.overrides.yml` | Postgres service + pgAdmin `depends_on`                    |
-| `docker-compose.local.yml`   | Local entrypoint (`include`s staging + `local.overrides.yml`)        |
-| `docker-compose.local.overrides.yml` | HTTP Traefik routers + loopback Postgres/Redis ports         |
+| `docker-compose.staging.yml` | Staging: Postgres + pgAdmin `depends_on` (merge with baseline) |
+| `docker-compose.local.yml` | Local: HTTP Traefik routers + loopback Postgres/Redis ports   |
 
 ### Exposure model
 
@@ -55,13 +53,13 @@ Run through this checklist before first production deploy:
   - `redis` is internal only (no host-port publish)
   - Postgres is managed off-host; apps connect via `DATABASE_URL` / host env
   - admin UIs are behind Traefik routes
-- Staging (`docker compose -f docker-compose.staging.yml up -d`):
+- Staging (merge baseline + `docker-compose.staging.yml`):
   - `postgres` and `redis` are internal only (no host-port publish)
-- Local (`docker compose -f docker-compose.local.yml up -d`):
+- Local (also merge `docker-compose.local.yml`):
   - Postgres/Redis bind to `127.0.0.1` only
   - local HTTP routers are enabled for testing
 
-Staging and local entrypoints use `include` (overrides are separate `*.overrides.yml` files — required by Compose so services do not "conflict with imported resource").
+Use `COMPOSE_FILE` in `.env` or multiple `-f` flags to merge overlay files with the baseline.
 
 ### Authentication model
 
@@ -113,8 +111,8 @@ cd C:\path\to\server-infra
 .\scripts\setup.ps1
 .\scripts\generate-auth.ps1 -Username admin
 .\scripts\add-hosts.ps1
-docker compose -f docker-compose.local.yml up -d
-docker compose -f docker-compose.local.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml ps
 ```
 
 ### Staging server (quick)
@@ -123,8 +121,8 @@ docker compose -f docker-compose.local.yml ps
 cd /opt/server-infra
 ./scripts/setup.sh
 ./scripts/generate-auth.sh admin
-docker compose -f docker-compose.staging.yml up -d
-docker compose -f docker-compose.staging.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
 ```
 
 ### Production (quick)
@@ -220,8 +218,8 @@ It adds:
 ### Step 5: Start local stack
 
 ```powershell
-docker compose -f docker-compose.local.yml up -d
-docker compose -f docker-compose.local.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml ps
 ```
 
 Expected healthy services: `traefik`, `redis`, `postgres`.
@@ -239,7 +237,7 @@ Expected healthy services: `traefik`, `redis`, `postgres`.
 Start (local):
 
 ```powershell
-docker compose --profile admin -f docker-compose.local.yml up -d portainer traefik
+docker compose --profile admin -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d portainer traefik
 ```
 
 Stop:
@@ -258,11 +256,11 @@ Use the production baseline plus the staging overlay so Postgres runs in Docker 
 
 ```bash
 cd /opt/server-infra
-docker compose -f docker-compose.staging.yml up -d
-docker compose -f docker-compose.staging.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
 ```
 
-Optional: set `COMPOSE_FILE=docker-compose.staging.yml` in `.env` or `/etc/environment` so plain `docker compose` works on the staging host.
+Optional: set `COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml` in `.env` so plain `docker compose` works on the staging host.
 
 ### Staging backups
 
@@ -451,7 +449,7 @@ sudo logrotate -f /etc/logrotate.d/server-infra-traefik-access
 
 ```bash
 # Staging only:
-docker compose -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"
+docker compose -f docker-compose.yml -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"
 docker compose exec redis redis-cli ping
 ```
 
@@ -582,8 +580,8 @@ systemctl list-timers server-infra-pg-backup.timer
 ### Restore examples
 
 ```bash
-gunzip -c backups/postgres/<timestamp>/globals.sql.gz | docker compose -f docker-compose.staging.yml exec -T postgres psql -U postgres postgres
-gunzip -c backups/postgres/<timestamp>/app_one.sql.gz | docker compose -f docker-compose.staging.yml exec -T postgres psql -U postgres app_one
+gunzip -c backups/postgres/<timestamp>/globals.sql.gz | docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T postgres psql -U postgres postgres
+gunzip -c backups/postgres/<timestamp>/app_one.sql.gz | docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T postgres psql -U postgres app_one
 ```
 
 ---
@@ -717,13 +715,13 @@ networks:
 **Postgres DB and user** — on staging, from infra root with staging compose files (on production, create these in managed Postgres instead):
 
 ```bash
-docker compose -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d postgres -c "
+docker compose -f docker-compose.yml -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d postgres -c "
   CREATE USER ${APP_DB_USER} WITH PASSWORD '${APP_DB_PASSWORD}';
   CREATE DATABASE ${APP_DB_NAME} OWNER ${APP_DB_USER};
   GRANT CONNECT ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
 "
-docker compose -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$APP_DB_NAME" -c "
+docker compose -f docker-compose.yml -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$APP_DB_NAME" -c "
   GRANT ALL ON SCHEMA public TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${APP_DB_USER};
@@ -746,9 +744,7 @@ docker compose -f apps/my-app/docker-compose.yml --env-file apps/my-app/.env up 
 server-infra/
 ├── docker-compose.yml
 ├── docker-compose.staging.yml
-├── docker-compose.staging.overrides.yml
 ├── docker-compose.local.yml
-├── docker-compose.local.overrides.yml
 ├── .env.example
 ├── hosts-entries.txt
 ├── server-infra-pg-backup.service

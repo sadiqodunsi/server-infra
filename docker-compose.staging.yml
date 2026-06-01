@@ -1,12 +1,48 @@
-# =============================================================================
-# Staging Entrypoint - Self-Managed Postgres
-# =============================================================================
-# Production uses managed Postgres and does not use this file.
-# docker compose -f docker-compose.staging.yml up -d
-# Overrides live in docker-compose.staging.overrides.yml (required by Compose
-# include semantics — patches cannot sit in the same file as `include`).
-# =============================================================================
+# Staging overlay — merge with the production baseline.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#
+# Or set in .env (Linux/macOS colon, Windows semicolon):
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
 
-include:
-  - docker-compose.yml
-  - docker-compose.staging.overrides.yml
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.5
+    container_name: postgres
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    mem_reservation: 256m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+    name: postgres-data
