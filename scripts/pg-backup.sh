@@ -25,7 +25,7 @@ echo "Creating Postgres backup set: $RUN_DIR"
 
 docker_exec() {
   docker compose \
-    -f "$ROOT_DIR/docker-compose.yml" \
+    -f "$ROOT_DIR/docker-compose.staging.yml" \
     --project-directory "$ROOT_DIR" \
     exec -T postgres sh -lc "$1"
 }

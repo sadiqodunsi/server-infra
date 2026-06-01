@@ -1,8 +1,10 @@
 # =============================================================================
 # Local Testing Override - HTTP Only (No SSL)
 # =============================================================================
-# Use with: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+# Use with:
+#   docker compose -f docker-compose.local.yml up -d
 #
+# Includes docker-compose.staging.yml (which includes the production baseline).
 # This override:
 # - Disables HTTP-to-HTTPS redirect (so HTTP works on port 80)
 # - Adds HTTP routers for all services (no SSL needed locally)
@@ -10,6 +12,9 @@
 # - Binds both IPv4 (127.0.0.1) and IPv6 (::1) so "localhost" works regardless of resolution
 # - Requires hosts file entries (see README)
 # =============================================================================
+
+include:
+  - docker-compose.staging.yml
 
 services:
   postgres:

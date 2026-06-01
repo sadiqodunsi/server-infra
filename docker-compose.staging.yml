@@ -1,0 +1,60 @@
+# =============================================================================
+# Staging Overlay - Self-Managed Postgres
+# =============================================================================
+# Adds the Postgres container and volume. Production uses managed Postgres and
+# does not include this file.
+#
+# Staging server:
+#   docker compose -f docker-compose.staging.yml up -d
+# =============================================================================
+
+include:
+  - docker-compose.yml
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # ---------------------------------------------------------------------------
+  # POSTGRES - Primary Database (staging only)
+  # ---------------------------------------------------------------------------
+  # Access via: postgres:5432 from any container on backend-network.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgis/postgis:16-3.5
+    container_name: postgres
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    mem_reservation: 256m
+    security_opt:
+      - no-new-privileges:true
+    # Host ports exposed only via docker-compose.local.yml (loopback dev access)
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+    name: postgres-data

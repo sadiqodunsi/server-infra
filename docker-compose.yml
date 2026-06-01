@@ -1,8 +1,9 @@
 # =============================================================================
 # Server Infrastructure Stack - Production Docker Compose
 # =============================================================================
-# App-agnostic infra: Traefik, Redis, Postgres, pgAdmin, RedisInsight, Portainer, Uptime Kuma.
-# Apps extend via traefik-network for HTTP routing and backend-network for Postgres/Redis access.
+# App-agnostic infra: Traefik, Redis, pgAdmin, RedisInsight, Portainer, Uptime Kuma.
+# Postgres is not included here; production uses managed Postgres. Staging adds it via
+# docker-compose.staging.yml. Apps extend via traefik-network and backend-network.
 # =============================================================================
 
 name: server-infra
@@ -143,42 +144,11 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # POSTGRES - Primary Database
-  # ---------------------------------------------------------------------------
-  # Persistent storage for all staging and production apps.
-  # Access via: postgres:5432 from any container on backend-network.
-  # ---------------------------------------------------------------------------
-  postgres:
-    image: postgis/postgis:16-3.5
-    container_name: postgres
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 1g
-    mem_reservation: 256m
-    security_opt:
-      - no-new-privileges:true
-    # Ports exposed only in docker-compose.local.yml (localhost dev access)
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
-    networks:
-      - backend-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # ---------------------------------------------------------------------------
   # PGADMIN - Database Management UI
   # ---------------------------------------------------------------------------
-  # Web UI for managing Postgres. Protected by BasicAuth.
+  # Web UI for Postgres. Protected by BasicAuth.
+  # Production: register your managed Postgres server in the UI manually.
+  # Staging: depends on the local postgres service via docker-compose.staging.yml.
   # Domain: pgadmin.db.example.com (set via DOMAIN in .env)
   # ---------------------------------------------------------------------------
   pgadmin:
@@ -200,9 +170,6 @@ services:
     networks:
       - traefik-network
       - backend-network
-    depends_on:
-      postgres:
-        condition: service_healthy
     labels:
       # Expose to Traefik
       - "traefik.enable=true"
@@ -315,7 +282,7 @@ services:
 # NETWORKS
 # =============================================================================
 # traefik-network: Reverse-proxy/public network for Traefik and routable apps/UIs.
-# backend-network: Internal network for Postgres, Redis, and apps/admin tools that need data access.
+# backend-network: Internal network for Redis and apps/admin tools that need data access.
 # =============================================================================
 networks:
   traefik-network:
@@ -338,8 +305,6 @@ volumes:
     name: traefik-logs
   redis-data:
     name: redis-data
-  postgres-data:
-    name: postgres-data
   pgadmin-data:
     name: pgadmin-data
   redisinsight-data:

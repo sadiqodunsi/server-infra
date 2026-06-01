@@ -20,6 +20,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT_DIR" || exit 1
 
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ".env"
+  set +a
+fi
+
 RED="$(printf '\033[31m')"
 GREEN="$(printf '\033[32m')"
 YELLOW="$(printf '\033[33m')"
@@ -131,6 +138,7 @@ fi
 section "Project files and secrets"
 
 [ -f "docker-compose.yml" ] && pass "docker-compose.yml exists" || fail "docker-compose.yml missing"
+[ -f "docker-compose.staging.yml" ] && pass "docker-compose.staging.yml exists" || fail "docker-compose.staging.yml missing"
 [ -f ".env" ] && pass ".env exists" || fail ".env missing (run ./scripts/setup.sh first)"
 [ -f "redis/.users.acl" ] && pass "redis/.users.acl exists" || fail "redis/.users.acl missing"
 [ -f "traefik/auth/.htpasswd" ] && pass "traefik/auth/.htpasswd exists" || fail "traefik/auth/.htpasswd missing"

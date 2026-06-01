@@ -6,7 +6,7 @@ Services in this stack:
 
 - Traefik (reverse proxy + TLS)
 - Redis (shared cache/queue backend with ACL users)
-- Postgres (shared database server, PostGIS-capable)
+- Postgres (PostGIS-capable) (self-hosted on staging only; production uses managed Postgres)
 - pgAdmin, RedisInsight, Uptime Kuma (admin/ops tools)
 - Portainer (maintenance-only via admin profile)
 
@@ -26,8 +26,9 @@ Run through this checklist before first production deploy:
 - [ ] Secret files exist and are permissioned to owner-only (`chmod 600`)
 - [ ] Host `logrotate` is installed and Traefik access-log rotation is configured (`./scripts/setup-traefik-logrotate.sh`)
 - [ ] `PORTAINER_EXPOSE=false` unless in an active maintenance window
-- [ ] **Recommended:** backup is configured (`S3_BUCKET`/`AWS_REGION` as needed + systemd timer enabled)
-- [ ] Backup path tested (`./scripts/pg-backup.sh`) and restore command validated
+- [ ] Managed Postgres connection details configured for apps and pgAdmin (not the Docker `postgres` service)
+- [ ] **Staging only:** backup is configured (`S3_BUCKET`/`AWS_REGION` as needed + systemd timer enabled)
+- [ ] **Staging only:** backup path tested (`./scripts/pg-backup.sh`) and restore command validated
 
 ---
 
@@ -38,14 +39,27 @@ Run through this checklist before first production deploy:
 - `traefik-network`: ingress/reverse-proxy traffic
 - `backend-network`: internal service traffic (apps -> Postgres/Redis)
 
+### Compose files
+
+| File                         | Purpose                                                                |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `docker-compose.yml`         | Production baseline: Traefik, Redis, admin UIs (no Postgres container) |
+| `docker-compose.staging.yml` | Staging entrypoint: `include`s baseline + self-managed Postgres        |
+| `docker-compose.local.yml`   | Local entrypoint: `include`s staging + HTTP/loopback overrides         |
+
 ### Exposure model
 
-- Production compose:
-  - `postgres` and `redis` are internal only (no host-port publish)
+- Production (`docker compose up -d` → `docker-compose.yml`):
+  - `redis` is internal only (no host-port publish)
+  - Postgres is managed off-host; apps connect via `DATABASE_URL` / host env
   - admin UIs are behind Traefik routes
-- Local override (`docker-compose.local.yml`):
+- Staging (`docker compose -f docker-compose.staging.yml up -d`):
+  - `postgres` and `redis` are internal only (no host-port publish)
+- Local (`docker compose -f docker-compose.local.yml up -d`):
   - Postgres/Redis bind to `127.0.0.1` only
   - local HTTP routers are enabled for testing
+
+Staging and local compose files use `include` to pull in parent files (no multi `-f` chain).
 
 ### Authentication model
 
@@ -65,21 +79,21 @@ Run through this checklist before first production deploy:
   - `read_only: true`
   - `tmpfs: /tmp`
   - `--ping=true` + Docker healthcheck
-- Healthchecks on Traefik, Redis, Postgres
+- Healthchecks on Traefik and Redis (Postgres when staging overlay is used)
 - Docker log rotation and memory limits
 
 ---
 
 ## 2) Scripts Reference (Dev vs Prod)
 
-| Script                                                         | Purpose                                                     | Dev      | Prod        |
-| -------------------------------------------------------------- | ----------------------------------------------------------- | -------- | ----------- |
-| `scripts/setup.ps1` / `scripts/setup.sh`                       | Bootstrap `.env`, `redis/.users.acl`, auth folder checks    | Yes      | Yes         |
-| `scripts/generate-auth.ps1` / `scripts/generate-auth.sh`       | Create `traefik/auth/.htpasswd`                             | Optional | Required    |
-| `scripts/add-hosts.ps1`                                        | Add hosts entries from `.env` `DOMAIN` (Windows local only) | Yes      | No          |
-| `scripts/manage-redis-acl.ps1` / `scripts/manage-redis-acl.sh` | Add/update per-app Redis ACL users                          | Optional | Recommended |
-| `scripts/pg-backup.sh`                                         | Postgres backup; optional S3 upload                         | Optional | Recommended |
-| `scripts/setup-traefik-logrotate.sh`                           | Install host logrotate for Traefik `access.log` volume file | No       | Recommended |
+| Script                                                         | Purpose                                                     | Dev      | Prod         |
+| -------------------------------------------------------------- | ----------------------------------------------------------- | -------- | ------------ |
+| `scripts/setup.ps1` / `scripts/setup.sh`                       | Bootstrap `.env`, `redis/.users.acl`, auth folder checks    | Yes      | Yes          |
+| `scripts/generate-auth.ps1` / `scripts/generate-auth.sh`       | Create `traefik/auth/.htpasswd`                             | Optional | Required     |
+| `scripts/add-hosts.ps1`                                        | Add hosts entries from `.env` `DOMAIN` (Windows local only) | Yes      | No           |
+| `scripts/manage-redis-acl.ps1` / `scripts/manage-redis-acl.sh` | Add/update per-app Redis ACL users                          | Optional | Recommended  |
+| `scripts/pg-backup.sh`                                         | Postgres backup; optional S3 upload (staging Docker DB)     | Optional | Staging only |
+| `scripts/setup-traefik-logrotate.sh`                           | Install host logrotate for Traefik `access.log` volume file | No       | Recommended  |
 
 Important:
 
@@ -97,8 +111,18 @@ cd C:\path\to\server-infra
 .\scripts\setup.ps1
 .\scripts\generate-auth.ps1 -Username admin
 .\scripts\add-hosts.ps1
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
-docker compose ps
+docker compose -f docker-compose.local.yml up -d
+docker compose -f docker-compose.local.yml ps
+```
+
+### Staging server (quick)
+
+```bash
+cd /opt/server-infra
+./scripts/setup.sh
+./scripts/generate-auth.sh admin
+docker compose -f docker-compose.staging.yml up -d
+docker compose -f docker-compose.staging.yml ps
 ```
 
 ### Production (quick)
@@ -118,17 +142,8 @@ Then immediately:
 - set strong secrets in `.env` and `redis/.users.acl`
 - set strict `ADMIN_IP_ALLOWLIST`
 - verify DNS for admin subdomains
-- **Recommended:** configure and enable automated backups now:
-
-```bash
-# Optional S3 config in .env: S3_BUCKET, S3_PREFIX, AWS_REGION
-./scripts/pg-backup.sh
-sudo cp /opt/server-infra/server-infra-pg-backup.service /etc/systemd/system/
-sudo cp /opt/server-infra/server-infra-pg-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now server-infra-pg-backup.timer
-systemctl list-timers server-infra-pg-backup.timer
-```
+- Configure apps and pgAdmin to use your **managed Postgres** endpoint (not `postgres:5432`)
+- Use your provider's backup/snapshot tooling for production databases
 
 Recommended on Linux hosts:
 
@@ -203,8 +218,8 @@ It adds:
 ### Step 5: Start local stack
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
-docker compose ps
+docker compose -f docker-compose.local.yml up -d
+docker compose -f docker-compose.local.yml ps
 ```
 
 Expected healthy services: `traefik`, `redis`, `postgres`.
@@ -222,7 +237,7 @@ Expected healthy services: `traefik`, `redis`, `postgres`.
 Start (local):
 
 ```powershell
-docker compose --profile admin -f docker-compose.yml -f docker-compose.local.yml up -d portainer traefik
+docker compose --profile admin -f docker-compose.local.yml up -d portainer traefik
 ```
 
 Stop:
@@ -233,7 +248,37 @@ docker compose stop portainer
 
 ---
 
-## 5) Production Setup on EC2 (Detailed)
+## 5) Staging Setup on EC2 (Detailed)
+
+Use the production baseline plus the staging overlay so Postgres runs in Docker on the staging host.
+
+### Start staging stack
+
+```bash
+cd /opt/server-infra
+docker compose -f docker-compose.staging.yml up -d
+docker compose -f docker-compose.staging.yml ps
+```
+
+Optional: set `COMPOSE_FILE=docker-compose.staging.yml` in `.env` or `/etc/environment` so plain `docker compose` works on the staging host.
+
+### Staging backups
+
+`./scripts/pg-backup.sh` and the `server-infra-pg-backup.timer` systemd unit target the staging Postgres container. Enable them on staging only:
+
+```bash
+# Optional S3 config in .env: S3_BUCKET, S3_PREFIX, AWS_REGION
+./scripts/pg-backup.sh
+sudo cp /opt/server-infra/server-infra-pg-backup.service /etc/systemd/system/
+sudo cp /opt/server-infra/server-infra-pg-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now server-infra-pg-backup.timer
+systemctl list-timers server-infra-pg-backup.timer
+```
+
+---
+
+## 6) Production Setup on EC2 (Detailed)
 
 ### Step 1: EC2 prerequisites
 
@@ -276,7 +321,8 @@ docker compose ps
 
 ### Step 4: Validate
 
-- Traefik/Redis/Postgres are `healthy`
+- Traefik and Redis are `healthy`
+- apps reach managed Postgres using provider connection settings
 - admin routes require BasicAuth
 - `ADMIN_IP_ALLOWLIST` blocks non-allowed IPs
 
@@ -320,31 +366,11 @@ docker run --rm -v portainer-data:/data portainer/helper-reset-password
 docker compose --profile admin up -d portainer
 ```
 
-### Step 6: Recommended backup setup
+### Step 6: Managed Postgres
 
-Configure backup variables in `.env` (if uploading to S3):
-
-```bash
-S3_BUCKET=my-server-infra-backups
-S3_PREFIX=postgres
-AWS_REGION=us-east-1
-```
-
-Run an immediate backup test:
-
-```bash
-./scripts/pg-backup.sh
-```
-
-Enable the systemd timer:
-
-```bash
-sudo cp /opt/server-infra/server-infra-pg-backup.service /etc/systemd/system/
-sudo cp /opt/server-infra/server-infra-pg-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now server-infra-pg-backup.timer
-systemctl list-timers server-infra-pg-backup.timer
-```
+- Create databases and users in your managed Postgres provider
+- Point each app's `DATABASE_URL` (or equivalent) at the managed host
+- Register the same server in pgAdmin (Servers → Register) using the managed hostname
 
 ### Step 7: Recommended Traefik access log rotation
 
@@ -361,7 +387,7 @@ sudo logrotate -d /etc/logrotate.d/server-infra-traefik-access
 
 ---
 
-## 6) Day-2 Operations
+## 7) Day-2 Operations
 
 ### Start / stop / restart
 
@@ -422,13 +448,14 @@ sudo logrotate -f /etc/logrotate.d/server-infra-traefik-access
 ### Basic service checks
 
 ```bash
-docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"
+# Staging only:
+docker compose -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"
 docker compose exec redis redis-cli ping
 ```
 
 ### PostGIS support (spatial)
 
-The `postgres` service runs with PostGIS libraries available. To enable PostGIS in a specific database (one-time per DB), run:
+On **staging** (Docker Postgres), PostGIS libraries are available. To enable PostGIS in a specific database (one-time per DB), run:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -445,7 +472,7 @@ docker compose ps
 
 ---
 
-## 7) Redis ACL Operations
+## 8) Redis ACL Operations
 
 ### Create/update app user
 
@@ -471,7 +498,9 @@ Guidelines:
 
 ---
 
-## 8) Backups and Restore
+## 9) Backups and Restore
+
+Applies to **staging** (Docker Postgres). Production databases should use your managed provider's backup tooling.
 
 ### Manual backup
 
@@ -551,13 +580,13 @@ systemctl list-timers server-infra-pg-backup.timer
 ### Restore examples
 
 ```bash
-gunzip -c backups/postgres/<timestamp>/globals.sql.gz | docker compose exec -T postgres psql -U postgres postgres
-gunzip -c backups/postgres/<timestamp>/app_one.sql.gz | docker compose exec -T postgres psql -U postgres app_one
+gunzip -c backups/postgres/<timestamp>/globals.sql.gz | docker compose -f docker-compose.staging.yml exec -T postgres psql -U postgres postgres
+gunzip -c backups/postgres/<timestamp>/app_one.sql.gz | docker compose -f docker-compose.staging.yml exec -T postgres psql -U postgres app_one
 ```
 
 ---
 
-## 9) Security Caveats You Must Know
+## 10) Security Caveats You Must Know
 
 ### Mandatory practices
 
@@ -593,7 +622,7 @@ If Docker/service user needs access, adjust file owner/group accordingly instead
 
 ---
 
-## 10) Troubleshooting
+## 11) Troubleshooting
 
 ### Admin URLs not reachable
 
@@ -636,7 +665,7 @@ Regenerate `.htpasswd`:
 
 ---
 
-## 11) Extending Infra with New Apps
+## 12) Extending Infra with New Apps
 
 **Backbone principle:** This server-infra is the single entry point. Traefik is the only reverse proxy: all public HTTP/HTTPS traffic goes through it. Apps (Node APIs, React SPAs, etc.) do not add their own reverse proxy in front of Traefik; they attach to `traefik-network`, expose a port, and register routes via Traefik labels.
 
@@ -683,16 +712,16 @@ networks:
 .\scripts\manage-redis-acl.ps1 -Username my_api -Password "STRONG_PASSWORD" -Prefix my_api
 ```
 
-**Postgres DB and user** (set `APP_DB_NAME`, `APP_DB_USER`, `APP_DB_PASSWORD` then run from infra root):
+**Postgres DB and user** — on staging, from infra root with staging compose files (on production, create these in managed Postgres instead):
 
 ```bash
-docker compose exec postgres psql -U "$POSTGRES_USER" -d postgres -c "
+docker compose -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d postgres -c "
   CREATE USER ${APP_DB_USER} WITH PASSWORD '${APP_DB_PASSWORD}';
   CREATE DATABASE ${APP_DB_NAME} OWNER ${APP_DB_USER};
   GRANT CONNECT ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
 "
-docker compose exec postgres psql -U "$POSTGRES_USER" -d "$APP_DB_NAME" -c "
+docker compose -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$APP_DB_NAME" -c "
   GRANT ALL ON SCHEMA public TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${APP_DB_USER};
@@ -709,11 +738,12 @@ docker compose -f apps/my-app/docker-compose.yml --env-file apps/my-app/.env up 
 
 ---
 
-## 12) File Layout
+## 13) File Layout
 
 ```text
 server-infra/
 ├── docker-compose.yml
+├── docker-compose.staging.yml
 ├── docker-compose.local.yml
 ├── .env.example
 ├── hosts-entries.txt
