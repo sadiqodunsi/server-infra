@@ -44,8 +44,10 @@ Run through this checklist before first production deploy:
 | File                         | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
 | `docker-compose.yml`         | Production baseline: Traefik, Redis, admin UIs (no Postgres container) |
-| `docker-compose.staging.yml` | Staging entrypoint: `include`s baseline + self-managed Postgres        |
-| `docker-compose.local.yml`   | Local entrypoint: `include`s staging + HTTP/loopback overrides         |
+| `docker-compose.staging.yml` | Staging entrypoint (`include`s baseline + `staging.overrides.yml`)   |
+| `docker-compose.staging.overrides.yml` | Postgres service + pgAdmin `depends_on`                    |
+| `docker-compose.local.yml`   | Local entrypoint (`include`s staging + `local.overrides.yml`)        |
+| `docker-compose.local.overrides.yml` | HTTP Traefik routers + loopback Postgres/Redis ports         |
 
 ### Exposure model
 
@@ -59,7 +61,7 @@ Run through this checklist before first production deploy:
   - Postgres/Redis bind to `127.0.0.1` only
   - local HTTP routers are enabled for testing
 
-Staging and local compose files use `include` to pull in parent files (no multi `-f` chain).
+Staging and local entrypoints use `include` (overrides are separate `*.overrides.yml` files — required by Compose so services do not "conflict with imported resource").
 
 ### Authentication model
 
@@ -744,7 +746,9 @@ docker compose -f apps/my-app/docker-compose.yml --env-file apps/my-app/.env up 
 server-infra/
 ├── docker-compose.yml
 ├── docker-compose.staging.yml
+├── docker-compose.staging.overrides.yml
 ├── docker-compose.local.yml
+├── docker-compose.local.overrides.yml
 ├── .env.example
 ├── hosts-entries.txt
 ├── server-infra-pg-backup.service

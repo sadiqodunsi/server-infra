@@ -1,0 +1,64 @@
+# Local overrides merged via include (see docker-compose.local.yml).
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+      - "[::1]:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+      - "[::1]:6379:6379"
+
+  traefik:
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traefik-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--ping=true"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard-local.rule=Host(`traefik.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.traefik-dashboard-local.entrypoints=web"
+      - "traefik.http.routers.traefik-dashboard-local.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard-local.priority=200"
+
+  pgadmin:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin-local.rule=Host(`pgadmin.db.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.pgadmin-local.entrypoints=web"
+      - "traefik.http.routers.pgadmin-local.service=pgadmin"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
+  redisinsight:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.redisinsight-local.rule=Host(`redis.db.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.redisinsight-local.entrypoints=web"
+      - "traefik.http.routers.redisinsight-local.service=redisinsight"
+      - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
+
+  portainer:
+    labels:
+      - "traefik.enable=${PORTAINER_EXPOSE:-false}"
+      - "traefik.http.routers.portainer-local.rule=Host(`docker.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.portainer-local.entrypoints=web"
+      - "traefik.http.routers.portainer-local.service=portainer"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+  uptime-kuma:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.uptime-kuma-local.rule=Host(`uptime.${DOMAIN:-local.com}`)"
+      - "traefik.http.routers.uptime-kuma-local.entrypoints=web"
+      - "traefik.http.routers.uptime-kuma-local.service=uptime-kuma"
+      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
