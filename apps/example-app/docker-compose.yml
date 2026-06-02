@@ -6,13 +6,9 @@
 #
 # App domain (set in app's .env or passed via --env-file, not committed):
 #
-#   Pattern A - Full domain per app:
-#     API_DOMAIN=api.example.com (prod) or staging-api.example.com (staging)
-#     Rule: Host(`${API_DOMAIN}`)
-#
-#   Pattern B - Prefix for staging:
-#     DOMAIN_PREFIX= (prod) or DOMAIN_PREFIX=staging- (staging)
-#     Rule: Host(`${DOMAIN_PREFIX}api.example.com`)
+#   Full domain per app:
+#     APP_HOST=api.example.com (prod) or staging-api.example.com (staging)
+#     Rule: Host(`${APP_HOST}`)
 # =============================================================================
 
 services:
@@ -38,8 +34,7 @@ services:
       - backend-network
     labels:
       - "traefik.enable=true"
-      # Pattern B example: DOMAIN_PREFIX= or staging-
-      - "traefik.http.routers.example-app.rule=Host(`${DOMAIN_PREFIX:-}app.example.com`)"
+      - "traefik.http.routers.example-app.rule=Host(`${APP_HOST}`)"
       - "traefik.http.routers.example-app.entrypoints=websecure"
       - "traefik.http.services.example-app.loadbalancer.server.port=3000"
 
