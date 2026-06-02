@@ -165,6 +165,13 @@ services:
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: "True"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "True"
+      # pgAdmin runs behind multiple proxies in (Cloudflare -> Traefik -> pgAdmin).
+      # These settings prevent redirect loops and cookie issues when Cloudflare proxy is enabled.
+      PGADMIN_CONFIG_PROXY_X_FOR_COUNT: "2"
+      PGADMIN_CONFIG_PROXY_X_PROTO_COUNT: "2"
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "2"
+      PGADMIN_CONFIG_PROXY_X_PORT_COUNT: "2"
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
     volumes:
       - pgadmin-data:/var/lib/pgadmin
     networks:

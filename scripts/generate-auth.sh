@@ -7,6 +7,7 @@
 #
 # Usage:
 #   ./scripts/generate-auth.sh [username] [password]
+#   bash scripts/generate-auth.sh [username]   # if execute bit is missing
 #
 # If password is omitted, you will be prompted interactively.
 # For local-only quick auth you can use:
