@@ -3,7 +3,7 @@
 # Generate .htpasswd for Traefik BasicAuth
 # =============================================================================
 # Run this script to create traefik/auth/.htpasswd for protecting admin tools
-# (pgAdmin, Portainer, Uptime Kuma). Uses bcrypt for secure password hashing.
+# (pgAdmin on staging, RedisInsight, Portainer, Uptime Kuma). Uses bcrypt for secure password hashing.
 #
 # Usage:
 #   ./scripts/generate-auth.sh [username] [password]

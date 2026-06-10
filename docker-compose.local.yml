@@ -1,6 +1,7 @@
-# Local overlay — merge after staging:
-# docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d
-# Or COMPOSE_FILE (Linux): docker-compose.yml:docker-compose.staging.yml:docker-compose.local.yml
+# Local overlay — merge after staging and admin:
+# docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml up -d
+# Or COMPOSE_FILE (Linux): docker-compose.yml:docker-compose.staging.yml:docker-compose.local.yml:docker-compose.admin.yml
+# RedisInsight and Portainer: docker compose --profile admin up -d redisinsight portainer traefik
 
 services:
   postgres:

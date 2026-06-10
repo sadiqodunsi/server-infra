@@ -1,9 +1,14 @@
 # Staging overlay — merge with the production baseline.
-#
-#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-#
+# docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
 # Or set in .env (Linux/macOS colon, Windows semicolon):
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
+# COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
+# docker compose up -d
+
+# Maintenance
+# docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml --profile admin up -d redisinsight portainer traefik
+# Or set in .env (Linux/macOS colon, Windows semicolon):
+# COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml:docker-compose.admin.yml
+# docker compose --profile admin up -d redisinsight portainer traefik
 
 x-logging: &default-logging
   driver: json-file
@@ -38,11 +43,51 @@ services:
       retries: 5
       start_period: 10s
 
+  # ---------------------------------------------------------------------------
+  # PGADMIN - Database Management UI (staging only)
+  # ---------------------------------------------------------------------------
+  # Web UI for the staging Postgres container. Not deployed on production (managed RDS).
+  # Domain: pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN> (e.g. pgadmin-staging.example.com)
+  # ---------------------------------------------------------------------------
   pgadmin:
+    image: dpage/pgadmin4:9.13.0
+    container_name: pgadmin
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    mem_reservation: 256m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "True"
+      # pgAdmin runs behind multiple proxies in (Cloudflare -> Traefik -> pgAdmin).
+      # These settings prevent redirect loops and cookie issues when Cloudflare proxy is enabled.
+      PGADMIN_CONFIG_PROXY_X_FOR_COUNT: "2"
+      PGADMIN_CONFIG_PROXY_X_PROTO_COUNT: "2"
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "2"
+      PGADMIN_CONFIG_PROXY_X_PORT_COUNT: "2"
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - traefik-network
+      - backend-network
     depends_on:
       postgres:
         condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin${INFRA_HOST_SUFFIX:-}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.pgadmin.entrypoints=websecure"
+      - "traefik.http.routers.pgadmin.service=pgadmin"
+      - "traefik.http.routers.pgadmin.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
 
 volumes:
   postgres-data:
     name: postgres-data
+  pgadmin-data:
+    name: pgadmin-data

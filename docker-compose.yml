@@ -1,7 +1,9 @@
 # =============================================================================
 # Server Infrastructure Stack - Production Docker Compose
 # =============================================================================
-# App-agnostic infra: Traefik, Redis, pgAdmin, RedisInsight, Portainer, Uptime Kuma.
+# App-agnostic infra: Traefik, Redis, Uptime Kuma.
+# RedisInsight and Portainer: docker-compose.admin.yml (admin profile).
+# pgAdmin is staging-only (docker-compose.staging.yml); production uses managed Postgres + desktop clients.
 # Postgres is not included here; production uses managed Postgres. Staging adds it via
 # docker-compose.staging.yml. Apps extend via traefik-network and backend-network.
 # =============================================================================
@@ -91,7 +93,7 @@ services:
     labels:
       # Expose this container to Traefik
       - "traefik.enable=true"
-      # BasicAuth middleware - protects admin tools (pgAdmin, RedisInsight, Portainer, Uptime Kuma)
+      # BasicAuth middleware - protects admin tools (RedisInsight, Portainer, Uptime Kuma)
       - "traefik.http.middlewares.admin-auth.basicauth.usersfile=/etc/traefik/auth/.htpasswd"
       # IP allowlist middleware - restricts admin tools to trusted public IPs/CIDRs
       - "traefik.http.middlewares.admin-ipallowlist.ipallowlist.sourcerange=${ADMIN_IP_ALLOWLIST}"
@@ -142,117 +144,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
-  # ---------------------------------------------------------------------------
-  # PGADMIN - Database Management UI
-  # ---------------------------------------------------------------------------
-  # Web UI for Postgres. Protected by BasicAuth.
-  # Production: register your managed Postgres server in the UI manually.
-  # Staging: depends on postgres via docker-compose.staging.yml.
-  # Domain: pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN> (e.g. pgadmin-staging.example.com)
-  # ---------------------------------------------------------------------------
-  pgadmin:
-    image: dpage/pgadmin4:9.13.0
-    container_name: pgadmin
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 512m
-    mem_reservation: 256m
-    security_opt:
-      - no-new-privileges:true
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: "True"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "True"
-      # pgAdmin runs behind multiple proxies in (Cloudflare -> Traefik -> pgAdmin).
-      # These settings prevent redirect loops and cookie issues when Cloudflare proxy is enabled.
-      PGADMIN_CONFIG_PROXY_X_FOR_COUNT: "2"
-      PGADMIN_CONFIG_PROXY_X_PROTO_COUNT: "2"
-      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "2"
-      PGADMIN_CONFIG_PROXY_X_PORT_COUNT: "2"
-      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
-    volumes:
-      - pgadmin-data:/var/lib/pgadmin
-    networks:
-      - traefik-network
-      - backend-network
-    labels:
-      # Expose to Traefik
-      - "traefik.enable=true"
-      # HTTPS router - pgAdmin at https://pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN>
-      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin${INFRA_HOST_SUFFIX:-}.${DOMAIN:-example.com}`)"
-      - "traefik.http.routers.pgadmin.entrypoints=websecure"
-      - "traefik.http.routers.pgadmin.service=pgadmin"
-      - "traefik.http.routers.pgadmin.middlewares=admin-ipallowlist,admin-auth"
-      # Container port pgAdmin listens on
-      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
-
-  # ---------------------------------------------------------------------------
-  # REDISINSIGHT - Redis Management UI
-  # ---------------------------------------------------------------------------
-  # Web UI for Redis: browse keys, run commands, monitor performance.
-  # Add Redis connection: Host = redis, Port = 6379, Username = redis_admin, Password = password from redis/.users.acl
-  # Domain: redis<INFRA_HOST_SUFFIX>.<DOMAIN> (e.g. redis-staging.example.com)
-  # ---------------------------------------------------------------------------
-  redisinsight:
-    image: redis/redisinsight:3.2.0
-    container_name: redisinsight
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 256m
-    mem_reservation: 128m
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - redisinsight-data:/data
-    networks:
-      - traefik-network
-      - backend-network
-    depends_on:
-      redis:
-        condition: service_started
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.redisinsight.rule=Host(`redis${INFRA_HOST_SUFFIX:-}.${DOMAIN:-example.com}`)"
-      - "traefik.http.routers.redisinsight.entrypoints=websecure"
-      - "traefik.http.routers.redisinsight.service=redisinsight"
-      - "traefik.http.routers.redisinsight.middlewares=admin-ipallowlist,admin-auth"
-      - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
-
-  # ---------------------------------------------------------------------------
-  # PORTAINER - Docker Management UI
-  # ---------------------------------------------------------------------------
-  # Web UI for managing Docker containers, images, volumes.
-  # Domain: docker<INFRA_HOST_SUFFIX>.<DOMAIN> (e.g. docker-staging.example.com).
-  # Security: starts only when the "admin" profile is enabled.
-  # ---------------------------------------------------------------------------
-  portainer:
-    image: portainer/portainer-ce:2.38.1
-    container_name: portainer
-    profiles:
-      - admin
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 256m
-    mem_reservation: 128m
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer-data:/data
-    networks:
-      - traefik-network
-    labels:
-      # Expose to Traefik
-      - "traefik.enable=${PORTAINER_EXPOSE:-false}"
-      # HTTPS router - Portainer at https://docker<INFRA_HOST_SUFFIX>.<DOMAIN>
-      - "traefik.http.routers.portainer.rule=Host(`docker${INFRA_HOST_SUFFIX:-}.${DOMAIN:-example.com}`)"
-      - "traefik.http.routers.portainer.entrypoints=websecure"
-      - "traefik.http.routers.portainer.service=portainer"
-      - "traefik.http.routers.portainer.middlewares=admin-ipallowlist,admin-auth"
-      # Portainer listens on 9000 inside container
-      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
 
   # ---------------------------------------------------------------------------
   # UPTIME KUMA - Service Uptime Monitoring
@@ -312,8 +203,6 @@ volumes:
     name: traefik-logs
   redis-data:
     name: redis-data
-  pgadmin-data:
-    name: pgadmin-data
   redisinsight-data:
     name: redisinsight-data
   portainer-data:

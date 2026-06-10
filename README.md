@@ -7,8 +7,8 @@ Services in this stack:
 - Traefik (reverse proxy + TLS)
 - Redis (shared cache/queue backend with ACL users)
 - Postgres (PostGIS-capable) (self-hosted on staging only; production uses managed Postgres)
-- pgAdmin, RedisInsight, Uptime Kuma (admin/ops tools)
-- Portainer (maintenance-only via admin profile)
+- pgAdmin (staging only), Uptime Kuma (admin/ops tools)
+- RedisInsight, Portainer (`docker-compose.admin.yml`, `admin` profile — all environments)
 
 This document is the operational guide for setup, maintenance, backup, and troubleshooting.
 
@@ -26,7 +26,8 @@ Run through this checklist before first production deploy:
 - [ ] Secret files exist and are permissioned to owner-only (`chmod 600`)
 - [ ] Host `logrotate` is installed and Traefik access-log rotation is configured (`./scripts/setup-traefik-logrotate.sh`)
 - [ ] `PORTAINER_EXPOSE=false` unless in an active maintenance window
-- [ ] Managed Postgres connection details configured for apps and pgAdmin (not the Docker `postgres` service)
+- [ ] Managed Postgres connection details configured for apps (not the Docker `postgres` service)
+- [ ] **Staging only:** `PGADMIN_EMAIL` / `PGADMIN_PASSWORD` set for pgAdmin
 - [ ] **Staging only:** backup is configured (`S3_BUCKET`/`AWS_REGION` as needed + systemd timer enabled)
 - [ ] **Staging only:** backup path tested (`./scripts/pg-backup.sh`) and restore command validated
 
@@ -43,23 +44,79 @@ Run through this checklist before first production deploy:
 
 | File                         | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
-| `docker-compose.yml`         | Production baseline: Traefik, Redis, admin UIs (no Postgres container) |
-| `docker-compose.staging.yml` | Staging: Postgres + pgAdmin `depends_on` (merge with baseline)         |
-| `docker-compose.local.yml`   | Local: HTTP Traefik routers + loopback Postgres/Redis ports            |
+| `docker-compose.yml`         | Production baseline: Traefik, Redis, Uptime Kuma (no Postgres, no pgAdmin) |
+| `docker-compose.staging.yml` | Staging: Postgres + pgAdmin (merge with baseline)                        |
+| `docker-compose.admin.yml`   | RedisInsight + Portainer with `admin` profile (maintenance, all envs)    |
+| `docker-compose.local.yml`   | Local: HTTP Traefik routers + loopback Postgres/Redis ports              |
 
 ### Exposure model
 
-- Production (`docker compose up -d` → `docker-compose.yml`):
+- Production (`docker compose up -d` with `COMPOSE_FILE` including `docker-compose.admin.yml`):
   - `redis` is internal only (no host-port publish)
   - Postgres is managed off-host; apps connect via `DATABASE_URL` / host env
-  - admin UIs are behind Traefik routes
-- Staging (merge baseline + `docker-compose.staging.yml`):
+  - RedisInsight and Portainer require `--profile admin` (not started by default)
+- Staging (also merge `docker-compose.staging.yml`):
   - `postgres` and `redis` are internal only (no host-port publish)
+  - pgAdmin is always on; RedisInsight/Portainer need `--profile admin`
 - Local (also merge `docker-compose.local.yml`):
   - Postgres/Redis bind to `127.0.0.1` only
   - local HTTP routers are enabled for testing
+  - RedisInsight/Portainer need `--profile admin` (same as prod/staging)
 
-Use `COMPOSE_FILE` in `.env` or multiple `-f` flags to merge overlay files with the baseline.
+Set `COMPOSE_FILE` in `.env` (recommended) or pass `-f` flags on each command. See [Compose command reference](#compose-command-reference).
+
+### Compose command reference
+
+RedisInsight and Portainer live in `docker-compose.admin.yml` behind the `admin` profile. A normal `docker compose up -d` never starts them — you need `--profile admin` when you want maintenance UIs.
+
+**Recommended:** include `docker-compose.admin.yml` in `COMPOSE_FILE` on every host. Then day-to-day commands stay short; maintenance only adds `--profile admin`.
+
+#### `COMPOSE_FILE` per environment
+
+| Environment | Linux / macOS `COMPOSE_FILE` | Windows `COMPOSE_FILE` |
+| ----------- | ---------------------------- | ---------------------- |
+| Production  | `docker-compose.yml:docker-compose.admin.yml` | `docker-compose.yml;docker-compose.admin.yml` |
+| Staging     | `docker-compose.yml:docker-compose.staging.yml:docker-compose.admin.yml` | `docker-compose.yml;docker-compose.staging.yml;docker-compose.admin.yml` |
+| Local       | `docker-compose.yml:docker-compose.staging.yml:docker-compose.local.yml:docker-compose.admin.yml` | `docker-compose.yml;docker-compose.staging.yml;docker-compose.local.yml;docker-compose.admin.yml` |
+
+#### Production
+
+| Action | With `COMPOSE_FILE` set | Without `COMPOSE_FILE` (explicit `-f`) |
+| ------ | ----------------------- | -------------------------------------- |
+| Start stack | `docker compose up -d` | `docker compose -f docker-compose.yml -f docker-compose.admin.yml up -d` |
+| Status | `docker compose ps` | `docker compose -f docker-compose.yml -f docker-compose.admin.yml ps` |
+| Stop stack | `docker compose down` | `docker compose -f docker-compose.yml -f docker-compose.admin.yml down` |
+| **Start maintenance** | `docker compose --profile admin up -d redisinsight portainer traefik` | `docker compose -f docker-compose.yml -f docker-compose.admin.yml --profile admin up -d redisinsight portainer traefik` |
+| **Start RedisInsight only** | `docker compose --profile admin up -d redisinsight traefik` | `docker compose -f docker-compose.yml -f docker-compose.admin.yml --profile admin up -d redisinsight traefik` |
+| **Start Portainer only** (set `PORTAINER_EXPOSE=true` first) | `docker compose --profile admin up -d portainer traefik` | `docker compose -f docker-compose.yml -f docker-compose.admin.yml --profile admin up -d portainer traefik` |
+| **Stop maintenance** | `docker compose stop redisinsight portainer` | same |
+| **End Portainer exposure** | set `PORTAINER_EXPOSE=false`, then `docker compose up -d traefik` | same |
+
+#### Staging
+
+Same as production, but `COMPOSE_FILE` / `-f` list also includes `docker-compose.staging.yml`.
+
+| Action | With `COMPOSE_FILE` set | Without `COMPOSE_FILE` (explicit `-f`) |
+| ------ | ----------------------- | -------------------------------------- |
+| Start stack | `docker compose up -d` | `docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml up -d` |
+| **Start maintenance** | `docker compose --profile admin up -d redisinsight portainer traefik` | `docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml --profile admin up -d redisinsight portainer traefik` |
+| **Stop maintenance** | `docker compose stop redisinsight portainer` | same |
+| **End Portainer exposure** | set `PORTAINER_EXPOSE=false`, then `docker compose up -d traefik` | same |
+
+Staging always-on services: `traefik`, `redis`, `postgres`, `pgadmin`, `uptime-kuma`.
+
+#### Local
+
+| Action | With `COMPOSE_FILE` set | Without `COMPOSE_FILE` (explicit `-f`) |
+| ------ | ----------------------- | -------------------------------------- |
+| Start stack | `docker compose up -d` | `docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml up -d` |
+| **Start maintenance UIs** | `docker compose --profile admin up -d redisinsight portainer traefik` | `docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml --profile admin up -d redisinsight portainer traefik` |
+| **Stop maintenance** | `docker compose stop redisinsight portainer` | same |
+| **End Portainer exposure** | set `PORTAINER_EXPOSE=false`, then `docker compose up -d traefik` | same |
+
+Local always-on services: `traefik`, `redis`, `postgres`, `pgadmin`, `uptime-kuma`. Add `--profile admin` for `redisinsight` and `portainer`.
+
+For Portainer on staging/production, set `PORTAINER_EXPOSE=true` in `.env` before starting it, so Traefik publishes the route. RedisInsight is always routed when its container is running.
 
 ### Infra hostnames (Cloudflare-friendly)
 
@@ -67,11 +124,11 @@ Admin URLs use a **single subdomain level** under one zone:
 
 `<service><INFRA_HOST_SUFFIX>.<DOMAIN>`
 
-| Environment | `.env`                                             | Example pgAdmin URL                   |
-| ----------- | -------------------------------------------------- | ------------------------------------- |
-| Production  | `DOMAIN=example.com`, `INFRA_HOST_SUFFIX=` (empty) | `https://pgadmin.example.com`         |
-| Staging     | `DOMAIN=example.com`, `INFRA_HOST_SUFFIX=-staging` | `https://pgadmin-staging.example.com` |
-| Local       | `DOMAIN=local.com`, `INFRA_HOST_SUFFIX=`           | `http://pgadmin.local.com`            |
+| Environment | `.env`                                             | Example admin URLs                                      |
+| ----------- | -------------------------------------------------- | ------------------------------------------------------- |
+| Production  | `DOMAIN=example.com`, `INFRA_HOST_SUFFIX=` (empty) | `https://traefik.example.com`, `https://uptime.example.com` |
+| Staging     | `DOMAIN=example.com`, `INFRA_HOST_SUFFIX=-staging` | `https://pgadmin-staging.example.com`, `https://uptime-staging.example.com` |
+| Local       | `DOMAIN=local.com`, `INFRA_HOST_SUFFIX=`           | `http://pgadmin.local.com`, `http://redis.local.com`    |
 
 Create matching **proxied** DNS A/AAAA records in the `example.com` zone for each hostname Traefik routes.
 
@@ -125,8 +182,9 @@ cd C:\path\to\server-infra
 .\scripts\setup.ps1
 .\scripts\generate-auth.ps1 -Username admin
 .\scripts\add-hosts.ps1
-docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml --profile admin up -d redisinsight portainer traefik
 ```
 
 ### Staging server (quick)
@@ -135,8 +193,8 @@ docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-com
 cd /opt/server-infra
 ./scripts/setup.sh
 ./scripts/generate-auth.sh admin
-docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml ps
 ```
 
 ### Production (quick)
@@ -147,8 +205,8 @@ cd /opt/server-infra
 ./scripts/generate-auth.sh admin
 sudo apt-get update && sudo apt-get install -y logrotate
 sudo ./scripts/setup-traefik-logrotate.sh
-docker compose up -d
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.admin.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.admin.yml ps
 ```
 
 Then immediately:
@@ -156,7 +214,7 @@ Then immediately:
 - set strong secrets in `.env` and `redis/.users.acl`
 - set strict `ADMIN_IP_ALLOWLIST`
 - verify DNS for admin subdomains
-- Configure apps and pgAdmin to use your **managed Postgres** endpoint (not `postgres:5432`)
+- Configure apps to use your **managed Postgres** endpoint (not `postgres:5432`)
 - Use your provider's backup/snapshot tooling for production databases
 
 Recommended on Linux hosts:
@@ -233,33 +291,20 @@ It adds:
 ### Step 5: Start local stack
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml -f docker-compose.admin.yml --profile admin up -d redisinsight portainer traefik
 ```
 
-Expected healthy services: `traefik`, `redis`, `postgres`.
+Expected always-on services: `traefik`, `redis`, `postgres`, `pgadmin`, `uptime-kuma`. With `--profile admin`: also `redisinsight`, `portainer`.
 
 ### Step 6: Access local URLs
 
 - `http://traefik.<DOMAIN>`
 - `http://pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN>`
-- `http://redis<INFRA_HOST_SUFFIX>.<DOMAIN>`
 - `http://uptime<INFRA_HOST_SUFFIX>.<DOMAIN>`
-- `http://docker<INFRA_HOST_SUFFIX>.<DOMAIN>` (only when Portainer is started)
-
-### Step 7: Portainer maintenance mode
-
-Start (local):
-
-```powershell
-docker compose --profile admin -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.local.yml up -d portainer traefik
-```
-
-Stop:
-
-```powershell
-docker compose stop portainer
-```
+- `http://redis<INFRA_HOST_SUFFIX>.<DOMAIN>` (after `--profile admin`)
+- `http://docker<INFRA_HOST_SUFFIX>.<DOMAIN>` (after `--profile admin`; set `PORTAINER_EXPOSE=true` for Portainer)
 
 ---
 
@@ -271,11 +316,11 @@ Use the production baseline plus the staging overlay so Postgres runs in Docker 
 
 ```bash
 cd /opt/server-infra
-docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.admin.yml ps
 ```
 
-Optional: set `COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml` in `.env` so plain `docker compose` works on the staging host.
+Set `COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml:docker-compose.admin.yml` in `.env` so plain `docker compose` works on the staging host. Maintenance: see [Compose command reference](#compose-command-reference).
 
 ### Staging backups
 
@@ -302,10 +347,9 @@ systemctl list-timers server-infra-pg-backup.timer
   - `80`, `443` from internet
 - DNS A records -> EC2 IP:
   - `traefik<INFRA_HOST_SUFFIX>.<DOMAIN>`
-  - `pgadmin<INFRA_HOST_SUFFIX>.<DOMAIN>`
-  - `redis<INFRA_HOST_SUFFIX>.<DOMAIN>`
   - `uptime<INFRA_HOST_SUFFIX>.<DOMAIN>`
-  - optional `docker<INFRA_HOST_SUFFIX>.<DOMAIN>`
+  - optional `redis<INFRA_HOST_SUFFIX>.<DOMAIN>` (only when RedisInsight admin profile is running)
+  - optional `docker<INFRA_HOST_SUFFIX>.<DOMAIN>` (Portainer maintenance)
 - Docker + Compose installed
 
 ### Step 2: Bootstrap
@@ -318,7 +362,7 @@ cd /opt/server-infra
 
 Edit secrets:
 
-- `.env` (domain, DB creds, pgAdmin creds, allowlist)
+- `.env` (domain, allowlist, Redis settings; DB creds for staging only)
 - `redis/.users.acl` (redis_admin + app users)
 
 Recommended on Linux hosts:
@@ -330,9 +374,11 @@ chmod 600 .env redis/.users.acl traefik/auth/.htpasswd
 ### Step 3: Start production stack
 
 ```bash
-docker compose up -d
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.admin.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.admin.yml ps
 ```
+
+Set `COMPOSE_FILE=docker-compose.yml:docker-compose.admin.yml` in `.env` to shorten this to `docker compose up -d`.
 
 ### Step 4: Validate
 
@@ -341,37 +387,13 @@ docker compose ps
 - admin routes require BasicAuth
 - `ADMIN_IP_ALLOWLIST` blocks non-allowed IPs
 
-### Step 5: Portainer maintenance workflow
+### Step 5: Maintenance (Portainer / RedisInsight)
 
-Enable route in `.env`:
+See [Compose command reference](#compose-command-reference). Summary:
 
-```bash
-PORTAINER_EXPOSE=true
-```
-
-Start temporarily:
-
-```bash
-docker compose --profile admin up -d portainer traefik
-```
-
-Stop after maintenance:
-
-```bash
-docker compose stop portainer
-```
-
-Safe maintenance workflow checklist:
-
-- [ ] Confirm this is an active maintenance window and Portainer is actually needed
-- [ ] Ensure `ADMIN_IP_ALLOWLIST` includes only current trusted admin IP/CIDR values
-- [ ] Set `PORTAINER_EXPOSE=true` in `.env`
-- [ ] Start only required services: `docker compose --profile admin up -d portainer traefik`
-- [ ] Verify access through `https://docker.<DOMAIN>` (Traefik BasicAuth + Portainer auth)
-- [ ] Perform required maintenance actions and capture notes/screenshots for audit trail
-- [ ] Stop Portainer immediately after maintenance: `docker compose stop portainer`
-- [ ] Set `PORTAINER_EXPOSE=false` in `.env`
-- [ ] Confirm route is no longer exposed (expect 404/unreachable for `docker.<DOMAIN>`)
+1. Set `PORTAINER_EXPOSE=true` in `.env` when you need Portainer (not required for RedisInsight).
+2. `docker compose --profile admin up -d portainer redisinsight traefik` (with `COMPOSE_FILE` set).
+3. When done: `docker compose stop portainer redisinsight`, set `PORTAINER_EXPOSE=false`, `docker compose up -d traefik`.
 
 Reset Portainer admin password if needed:
 
@@ -385,7 +407,7 @@ docker compose --profile admin up -d portainer
 
 - Create databases and users in your managed Postgres provider
 - Point each app's `DATABASE_URL` (or equivalent) at the managed host
-- Register the same server in pgAdmin (Servers → Register) using the managed hostname
+- Use a desktop SQL client (pgAdmin, DBeaver, DataGrip) from your machine via VPN/bastion, or staging pgAdmin if your network policy allows staging → RDS access
 
 ### Step 7: Recommended Traefik access log rotation
 
@@ -649,14 +671,12 @@ If Docker/service user needs access, adjust file owner/group accordingly instead
 docker compose logs -f traefik
 ```
 
-### Portainer route gives 404
+### Portainer or RedisInsight route gives 404
 
-- confirm `.env` has `PORTAINER_EXPOSE=true`
-- start with admin profile:
-
-```bash
-docker compose --profile admin up -d portainer traefik
-```
+- confirm `docker-compose.admin.yml` is in your compose file list (`COMPOSE_FILE` or `-f`)
+- confirm the service was started with `--profile admin`
+- Portainer also requires `PORTAINER_EXPOSE=true` in `.env`
+- see [Compose command reference](#compose-command-reference)
 
 ### Local domains do not resolve
 
@@ -759,6 +779,7 @@ docker compose -f apps/my-app/docker-compose.yml --env-file apps/my-app/.env up 
 server-infra/
 ├── docker-compose.yml
 ├── docker-compose.staging.yml
+├── docker-compose.admin.yml
 ├── docker-compose.local.yml
 ├── .env.example
 ├── hosts-entries.txt

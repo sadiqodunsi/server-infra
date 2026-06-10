@@ -155,8 +155,10 @@ check_required_env "ADMIN_IP_ALLOWLIST"
 check_required_env "POSTGRES_USER"
 check_required_env "POSTGRES_PASSWORD"
 check_required_env "POSTGRES_DB"
-check_required_env "PGADMIN_EMAIL"
-check_required_env "PGADMIN_PASSWORD"
+if docker compose config --services 2>/dev/null | grep -qx pgadmin; then
+  check_required_env "PGADMIN_EMAIL"
+  check_required_env "PGADMIN_PASSWORD"
+fi
 check_required_env "REDIS_MAXMEMORY"
 check_required_env "REDIS_MAXMEMORY_POLICY"
 
@@ -204,11 +206,16 @@ else
   warn "docker compose project not running yet (this is okay pre-deploy)"
 fi
 
-SERVICES="traefik redis postgres pgadmin redisinsight uptime-kuma"
-for svc in $SERVICES; do
+REQUIRED_SERVICES="traefik redis uptime-kuma"
+OPTIONAL_SERVICES="postgres pgadmin redisinsight portainer"
+for svc in $REQUIRED_SERVICES $OPTIONAL_SERVICES; do
   cid="$(docker compose ps -q "$svc" 2>/dev/null || true)"
   if [ -z "$cid" ]; then
-    warn "Service not created/running: $svc"
+    if printf '%s\n' "$OPTIONAL_SERVICES" | grep -qx "$svc"; then
+      warn "Optional/profile service not running: $svc"
+    else
+      warn "Service not created/running: $svc"
+    fi
     continue
   fi
 
@@ -265,7 +272,16 @@ if [ -n "${VERIFY_DOMAIN:-}" ]; then
 
   if [ "${CHECK_HTTP:-0}" = "1" ]; then
     if command_exists curl; then
-      for host in "traefik${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" "pgadmin${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" "redis${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}" "uptime${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"; do
+      HTTP_HOSTS="traefik${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN} uptime${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"
+      if docker compose config --services 2>/dev/null | grep -qx pgadmin; then
+        HTTP_HOSTS="$HTTP_HOSTS pgadmin${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"
+      fi
+      if docker compose config --services 2>/dev/null | grep -qx redisinsight; then
+        if [ -n "$(docker compose ps -q redisinsight 2>/dev/null || true)" ]; then
+          HTTP_HOSTS="$HTTP_HOSTS redis${INFRA_HOST_SUFFIX}.${VERIFY_DOMAIN}"
+        fi
+      fi
+      for host in $HTTP_HOSTS; do
         code="$(curl -k -s -o /dev/null -m 8 -w "%{http_code}" "https://${host}" || true)"
         if [ "$code" = "401" ] || [ "$code" = "200" ] || [ "$code" = "302" ] || [ "$code" = "404" ]; then
           pass "HTTPS reachable: ${host} (HTTP ${code})"

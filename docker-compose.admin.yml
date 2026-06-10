@@ -1,0 +1,62 @@
+# Admin overlay — RedisInsight and Portainer (admin profile, all environments).
+# Merge this file in every environment; services start only with --profile admin.
+#
+#   docker compose --profile admin up -d redisinsight portainer traefik
+#
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  redisinsight:
+    image: redis/redisinsight:3.2.0
+    container_name: redisinsight
+    profiles:
+      - admin
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    mem_reservation: 128m
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - redisinsight-data:/data
+    networks:
+      - traefik-network
+      - backend-network
+    depends_on:
+      redis:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.redisinsight.rule=Host(`redis${INFRA_HOST_SUFFIX:-}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.redisinsight.entrypoints=websecure"
+      - "traefik.http.routers.redisinsight.service=redisinsight"
+      - "traefik.http.routers.redisinsight.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
+
+  portainer:
+    image: portainer/portainer-ce:2.38.1
+    container_name: portainer
+    profiles:
+      - admin
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    mem_reservation: 128m
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+    networks:
+      - traefik-network
+    labels:
+      - "traefik.enable=${PORTAINER_EXPOSE:-false}"
+      - "traefik.http.routers.portainer.rule=Host(`docker${INFRA_HOST_SUFFIX:-}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.service=portainer"
+      - "traefik.http.routers.portainer.middlewares=admin-ipallowlist,admin-auth"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
