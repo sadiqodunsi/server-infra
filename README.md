@@ -222,7 +222,8 @@ Then immediately:
 Recommended on Linux hosts:
 
 ```bash
-chmod 600 .env redis/.users.acl traefik/auth/.htpasswd
+chmod 600 .env redis/.users.acl
+chmod 755 traefik/auth && chmod 644 traefik/auth/.htpasswd
 ```
 
 ---
@@ -370,7 +371,8 @@ Edit secrets:
 Recommended on Linux hosts:
 
 ```bash
-chmod 600 .env redis/.users.acl traefik/auth/.htpasswd
+chmod 600 .env redis/.users.acl
+chmod 755 traefik/auth && chmod 644 traefik/auth/.htpasswd
 ```
 
 ### Step 3: Start production stack
@@ -651,7 +653,10 @@ Recommended on Linux hosts for secret files:
 ls -l .env redis/.users.acl traefik/auth/.htpasswd
 
 # Set strict permissions (owner read/write only)
-chmod 600 .env redis/.users.acl traefik/auth/.htpasswd
+chmod 600 .env redis/.users.acl
+# Traefik container must read .htpasswd via bind mount (non-root process)
+chmod 755 traefik/auth
+chmod 644 traefik/auth/.htpasswd
 
 # Verify
 ls -l .env redis/.users.acl traefik/auth/.htpasswd
@@ -692,6 +697,21 @@ docker compose logs --tail=200 redis
 docker compose logs --tail=200 postgres
 docker compose ps
 ```
+
+### Traefik logs: `permission denied` on `.htpasswd` (admin routes return 404)
+
+Traefik runs non-root inside the container. A bind-mounted `traefik/auth/.htpasswd` with mode `600` is only readable by the host owner, so the `admin-auth` middleware fails and all protected routes (uptime, traefik dashboard, etc.) return 404.
+
+On the server:
+
+```bash
+chmod 755 traefik/auth
+chmod 644 traefik/auth/.htpasswd
+docker compose up -d --force-recreate traefik
+docker compose logs --tail=20 traefik
+```
+
+Regenerate if missing: `./scripts/generate-auth.sh admin` (writes `644` automatically).
 
 ### BasicAuth fails
 

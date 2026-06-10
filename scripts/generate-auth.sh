@@ -62,5 +62,7 @@ if [ -z "$VALID_ENTRY" ]; then
 fi
 
 printf "%s\n" "$VALID_ENTRY" > "$AUTH_DIR/.htpasswd"
-chmod 600 "$AUTH_DIR/.htpasswd"
+# Traefik runs non-root in the container; bind-mounted 600 files are unreadable → routers 404.
+chmod 755 "$AUTH_DIR"
+chmod 644 "$AUTH_DIR/.htpasswd"
 echo "Created $AUTH_DIR/.htpasswd - ensure this file is in .gitignore!"

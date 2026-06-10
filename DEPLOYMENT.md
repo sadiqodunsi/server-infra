@@ -39,7 +39,9 @@ git clone <your-repo-url> .
 # One-time bootstrap
 ./scripts/setup.sh
 ./scripts/generate-auth.sh admin
-chmod 600 .env redis/.users.acl traefik/auth/.htpasswd
+chmod 600 .env redis/.users.acl
+chmod 755 traefik/auth
+chmod 644 traefik/auth/.htpasswd
 ```
 
 Edit `.env` with real values:

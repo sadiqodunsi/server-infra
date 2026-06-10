@@ -145,7 +145,7 @@ section "Project files and secrets"
 
 check_file_permissions ".env" "600"
 check_file_permissions "redis/.users.acl" "600"
-check_file_permissions "traefik/auth/.htpasswd" "600"
+check_file_permissions "traefik/auth/.htpasswd" "644"
 
 section ".env sanity checks"
 
