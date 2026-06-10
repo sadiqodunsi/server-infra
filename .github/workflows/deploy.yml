@@ -1,0 +1,118 @@
+# Infra deploy for Stage (stage branch) and Production (main branch).
+# Uses GitHub Environment secrets/vars so stage and prod can target different EC2 instances.
+# See DEPLOYMENT.md for bootstrap, secrets, and rollback.
+
+name: Deploy (Docker)
+
+on:
+  # Auto-deploy disabled until GitHub secrets and server bootstrap are ready.
+  # Re-enable: uncomment push below, or Actions → Deploy (Docker) → Enable workflow.
+  # push:
+  #   branches:
+  #     - main
+  #     - stage
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  deploy:
+    name: Deploy to EC2 (${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: validate
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      ENV_FILE: ${{ vars.ENV_FILE }}
+      HEALTHCHECK_HOST: ${{ vars.HEALTHCHECK_HOST }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate environment configuration
+        run: |
+          test -n "$DEPLOY_PATH" || (echo "Missing DEPLOY_PATH environment variable" && exit 1)
+          test -n "$ENV_FILE" || (echo "Missing ENV_FILE environment variable" && exit 1)
+          test -n "$HEALTHCHECK_HOST" || (echo "Missing HEALTHCHECK_HOST environment variable" && exit 1)
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Configure known_hosts
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_KNOWN_HOSTS" || (echo "Missing SSH_KNOWN_HOSTS secret" && exit 1)
+          mkdir -p ~/.ssh
+          printf "%s\n" "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Sync project files to server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          test -n "$SSH_HOST" || (echo "Missing SSH_HOST secret" && exit 1)
+          test -n "$SSH_USER" || (echo "Missing SSH_USER secret" && exit 1)
+          ssh "$SSH_USER@$SSH_HOST" "mkdir -p $DEPLOY_PATH/postgres/initdb $DEPLOY_PATH/traefik/auth $DEPLOY_PATH/redis $DEPLOY_PATH/scripts"
+          rsync -avz \
+            --exclude '.env' \
+            --exclude 'traefik/auth/.htpasswd' \
+            --exclude 'redis/.users.acl' \
+            --exclude 'docker-compose.local.yml' \
+            --exclude 'apps/' \
+            --exclude '.git/' \
+            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+
+      - name: Deploy on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          test -n "$SSH_HOST" || (echo "Missing SSH_HOST secret" && exit 1)
+          test -n "$SSH_USER" || (echo "Missing SSH_USER secret" && exit 1)
+          ssh "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd $DEPLOY_PATH
+            test -f docker-compose.yml || (echo 'docker-compose.yml not found in DEPLOY_PATH' && exit 1)
+            test -f $ENV_FILE || (echo 'env file not found: $ENV_FILE (run setup.sh on server first)' && exit 1)
+            docker compose --env-file $ENV_FILE pull
+            docker compose --env-file $ENV_FILE up -d --wait --no-build
+            docker compose --env-file $ENV_FILE ps
+          "
+
+      - name: Post-deploy HTTPS health check
+        shell: bash
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -k -s -o /dev/null -w "%{http_code}" --max-time 15 "https://${HEALTHCHECK_HOST}" || true)
+            case "$code" in
+              200|401|302)
+                echo "Healthy: https://${HEALTHCHECK_HOST} (HTTP $code)"
+                exit 0
+                ;;
+              *)
+                echo "Attempt $i/10: https://${HEALTHCHECK_HOST} returned HTTP ${code:-n/a}"
+                ;;
+            esac
+            sleep 5
+          done
+          echo "Health check failed after 10 attempts"
+          exit 1

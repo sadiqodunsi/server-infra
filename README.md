@@ -31,6 +31,8 @@ Run through this checklist before first production deploy:
 - [ ] **Staging only:** backup is configured (`S3_BUCKET`/`AWS_REGION` as needed + systemd timer enabled)
 - [ ] **Staging only:** backup path tested (`./scripts/pg-backup.sh`) and restore command validated
 
+Automated deploys via GitHub Actions — see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ---
 
 ## 1) Architecture and Security Model

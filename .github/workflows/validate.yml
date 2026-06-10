@@ -1,0 +1,31 @@
+name: Validate
+
+on:
+  workflow_call:
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare env for compose validation
+        run: cp .env.example .env
+
+      - name: Validate compose (default)
+        run: docker compose config
+
+      - name: Validate compose (production stack)
+        run: COMPOSE_FILE=docker-compose.yml:docker-compose.admin.yml docker compose config
+
+      - name: Validate compose (staging stack)
+        run: COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml:docker-compose.admin.yml docker compose config
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: shellcheck scripts/*.sh
