@@ -1,12 +1,16 @@
 # Infra deploy for Stage (stage branch) and Production (main branch).
 # Uses GitHub Environment secrets/vars so stage and prod can target different EC2 instances.
 # See DEPLOYMENT.md for bootstrap, secrets, and rollback.
+#
+# Auto-deploy is DISABLED by default. To enable:
+# 1. Create GitHub Environments (staging + production) with the required secrets/vars (see DEPLOYMENT.md)
+# 2. Uncomment the push trigger below
 
 name: Deploy (Docker)
 
 on:
-  # Auto-deploy disabled until GitHub secrets and server bootstrap are ready.
-  # Re-enable: uncomment push below, or Actions → Deploy (Docker) → Enable workflow.
+  # Auto-deploy disabled until GitHub Environments are configured.
+  # Uncomment to deploy on push to main/stage:
   # push:
   #   branches:
   #     - main
@@ -25,15 +29,29 @@ concurrency:
   group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref_name }}
   cancel-in-progress: true
 
+env:
+  TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
+
 jobs:
   validate:
     uses: ./.github/workflows/validate.yml
+
+  build-postgres:
+    name: Build Postgres image
+    if: (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging') || (github.event_name != 'workflow_dispatch' && github.ref_name != 'main')
+    uses: ./.github/workflows/build-postgres.yml
+    permissions:
+      contents: read
+      packages: write
 
   deploy:
     name: Deploy to EC2 (${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: validate
+    needs:
+      - validate
+      - build-postgres
+    if: always() && needs.validate.result == 'success' && (needs.build-postgres.result == 'success' || needs.build-postgres.result == 'skipped')
     environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
     env:
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
@@ -85,6 +103,9 @@ jobs:
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
+          TARGET_ENV: ${{ env.TARGET_ENV }}
         run: |
           test -n "$SSH_HOST" || (echo "Missing SSH_HOST secret" && exit 1)
           test -n "$SSH_USER" || (echo "Missing SSH_USER secret" && exit 1)
@@ -93,6 +114,11 @@ jobs:
             cd $DEPLOY_PATH
             test -f docker-compose.yml || (echo 'docker-compose.yml not found in DEPLOY_PATH' && exit 1)
             test -f $ENV_FILE || (echo 'env file not found: $ENV_FILE (run setup.sh on server first)' && exit 1)
+            if [ \"$TARGET_ENV\" = staging ] && docker compose --env-file $ENV_FILE config --services | grep -qx postgres; then
+              if [ -n \"$GHCR_PAT\" ]; then
+                echo \"$GHCR_PAT\" | docker login ghcr.io -u \"$GHCR_USERNAME\" --password-stdin
+              fi
+            fi
             docker compose --env-file $ENV_FILE pull
             docker compose --env-file $ENV_FILE up -d --wait --no-build
             docker compose --env-file $ENV_FILE ps
