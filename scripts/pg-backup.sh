@@ -6,6 +6,7 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
+  # shellcheck disable=SC1091
   . "$ROOT_DIR/.env"
   set +a
 fi
@@ -31,10 +32,11 @@ docker_exec() {
     exec -T postgres sh -lc "$1"
 }
 
-docker_exec 'pg_dumpall -U "$POSTGRES_USER" --globals-only' | gzip > "$RUN_DIR/globals.sql.gz"
+# Expand POSTGRES_USER inside the container (compose sets it), not on the host.
+docker_exec "pg_dumpall -U \"\$POSTGRES_USER\" --globals-only" | gzip > "$RUN_DIR/globals.sql.gz"
 
 mapfile -t DATABASES < <(
-  docker_exec 'psql -U "$POSTGRES_USER" -At -c "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;"'
+  docker_exec "psql -U \"\$POSTGRES_USER\" -At -c \"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;\""
 )
 
 for DB_NAME in "${DATABASES[@]}"; do

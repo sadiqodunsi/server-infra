@@ -97,6 +97,14 @@ check_file_permissions() {
   fi
 }
 
+require_file() {
+  if [ -f "$1" ]; then
+    pass "$1 exists"
+  else
+    fail "${2:-$1 missing}"
+  fi
+}
+
 check_required_env() {
   local key="$1"
   local value
@@ -137,11 +145,11 @@ fi
 
 section "Project files and secrets"
 
-[ -f "docker-compose.yml" ] && pass "docker-compose.yml exists" || fail "docker-compose.yml missing"
-[ -f "docker-compose.staging.yml" ] && pass "docker-compose.staging.yml exists" || fail "docker-compose.staging.yml missing"
-[ -f ".env" ] && pass ".env exists" || fail ".env missing (run ./scripts/setup.sh first)"
-[ -f "redis/.users.acl" ] && pass "redis/.users.acl exists" || fail "redis/.users.acl missing"
-[ -f "traefik/auth/.htpasswd" ] && pass "traefik/auth/.htpasswd exists" || fail "traefik/auth/.htpasswd missing"
+require_file "docker-compose.yml"
+require_file "docker-compose.staging.yml"
+require_file ".env" ".env missing (run ./scripts/setup.sh first)"
+require_file "redis/.users.acl"
+require_file "traefik/auth/.htpasswd"
 
 check_file_permissions ".env" "600"
 check_file_permissions "redis/.users.acl" "600"
