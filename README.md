@@ -6,7 +6,7 @@ Services in this stack:
 
 - Traefik (reverse proxy + TLS)
 - Redis (shared cache/queue backend with ACL users)
-- Postgres (PostGIS-capable) (self-hosted on staging only; production uses managed Postgres)
+- Postgres (PostGIS + pgvector) (self-hosted on staging only; production uses managed Postgres)
 - pgAdmin (staging only), Uptime Kuma (admin/ops tools)
 - RedisInsight, Portainer (`docker-compose.admin.yml`, `admin` profile — all environments)
 
@@ -27,11 +27,12 @@ Run through this checklist before first production deploy:
 - [ ] Host `logrotate` is installed and Traefik access-log rotation is configured (`./scripts/setup-traefik-logrotate.sh`)
 - [ ] `PORTAINER_EXPOSE=false` unless in an active maintenance window
 - [ ] Managed Postgres connection details configured for apps (not the Docker `postgres` service)
+- [ ] **Staging only:** `POSTGRES_IMAGE` set to the GHCR Postgres image (see `.env.example`)
 - [ ] **Staging only:** `PGADMIN_EMAIL` / `PGADMIN_PASSWORD` set for pgAdmin
 - [ ] **Staging only:** backup is configured (`S3_BUCKET`/`AWS_REGION` as needed + systemd timer enabled)
 - [ ] **Staging only:** backup path tested (`./scripts/pg-backup.sh`) and restore command validated
 
-Automated deploys via GitHub Actions — see [DEPLOYMENT.md](DEPLOYMENT.md).
+CI and Postgres image publish via GitHub Actions — see [DEPLOYMENT.md](DEPLOYMENT.md). Servers are still updated with `git pull` and Compose.
 
 ---
 
@@ -47,7 +48,7 @@ Automated deploys via GitHub Actions — see [DEPLOYMENT.md](DEPLOYMENT.md).
 | File                         | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
 | `docker-compose.yml`         | Production baseline: Traefik, Redis, Uptime Kuma (no Postgres, no pgAdmin) |
-| `docker-compose.staging.yml` | Staging: Postgres + pgAdmin (merge with baseline)                        |
+| `docker-compose.staging.yml` | Staging: Postgres (PostGIS + pgvector) + pgAdmin (merge with baseline) |
 | `docker-compose.admin.yml`   | RedisInsight + Portainer with `admin` profile (maintenance, all envs)    |
 | `docker-compose.local.yml`   | Local: HTTP Traefik routers + loopback Postgres/Redis ports              |
 
@@ -264,6 +265,7 @@ PORTAINER_EXPOSE=false
 ACME_EMAIL=admin@example.com
 ADMIN_IP_ALLOWLIST=127.0.0.1/32
 
+POSTGRES_IMAGE=ghcr.io/sadiqodunsi/server-infra/postgres:16-3.5-pgvector
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=CHANGE_ME_STRONG
 POSTGRES_DB=postgres
@@ -494,14 +496,19 @@ docker compose -f docker-compose.yml -f docker-compose.staging.yml exec postgres
 docker compose exec redis redis-cli ping
 ```
 
-### PostGIS support (spatial)
+### PostGIS and pgvector
 
-On **staging** (Docker Postgres), PostGIS libraries are available. To enable PostGIS in a specific database (one-time per DB), run:
+On **staging** (Docker Postgres), PostGIS and pgvector libraries are in the GHCR image built from `postgres/Dockerfile` (`.github/workflows/build-postgres.yml`). Init scripts enable both in the default `POSTGRES_DB` on first volume init only. To enable them in another database (one-time per DB), run:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS postgis;
 SELECT PostGIS_Version();
+
+CREATE EXTENSION IF NOT EXISTS vector;
+SELECT extversion FROM pg_extension WHERE extname = 'vector';
 ```
+
+Existing volumes are not re-initialized when the image changes. After pulling a new `POSTGRES_IMAGE` and recreating `postgres`, run `CREATE EXTENSION IF NOT EXISTS vector;` in each database that needs pgvector.
 
 ### Upgrade images
 
@@ -510,6 +517,8 @@ docker compose pull
 docker compose up -d
 docker compose ps
 ```
+
+Staging Postgres is built on every PR (compile only) and published to GHCR on push to `main` or `stage`. Servers are not updated by CI — `git pull`, then `docker compose pull` and `docker compose up -d`.
 
 ---
 
@@ -779,6 +788,8 @@ docker compose -f docker-compose.yml -f docker-compose.staging.yml exec postgres
   GRANT ALL PRIVILEGES ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
 "
 docker compose -f docker-compose.yml -f docker-compose.staging.yml exec postgres psql -U "$POSTGRES_USER" -d "$APP_DB_NAME" -c "
+  CREATE EXTENSION IF NOT EXISTS postgis;
+  CREATE EXTENSION IF NOT EXISTS vector;
   GRANT ALL ON SCHEMA public TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${APP_DB_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${APP_DB_USER};
@@ -807,6 +818,11 @@ server-infra/
 ├── hosts-entries.txt
 ├── server-infra-pg-backup.service
 ├── server-infra-pg-backup.timer
+├── postgres/
+│   ├── Dockerfile
+│   └── initdb/
+│       ├── 01-postgis.sql
+│       └── 02-pgvector.sql
 ├── redis/
 │   ├── .users.acl.example
 │   └── README.md
