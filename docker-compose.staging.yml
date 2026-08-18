@@ -17,8 +17,9 @@ x-logging: &default-logging
     max-file: "5"
 
 services:
+  # PostGIS 16 + pgvector. Image is built in CI and published to GHCR (see build-postgres.yml).
   postgres:
-    image: postgis/postgis:16-3.5
+    image: ${POSTGRES_IMAGE:?Set POSTGRES_IMAGE in .env — see .env.example}
     container_name: postgres
     restart: unless-stopped
     logging: *default-logging

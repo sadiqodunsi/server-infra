@@ -155,6 +155,9 @@ check_required_env "ADMIN_IP_ALLOWLIST"
 check_required_env "POSTGRES_USER"
 check_required_env "POSTGRES_PASSWORD"
 check_required_env "POSTGRES_DB"
+if docker compose config --services 2>/dev/null | grep -qx postgres; then
+  check_required_env "POSTGRES_IMAGE"
+fi
 if docker compose config --services 2>/dev/null | grep -qx pgadmin; then
   check_required_env "PGADMIN_EMAIL"
   check_required_env "PGADMIN_PASSWORD"
@@ -240,6 +243,11 @@ if docker compose ps -q postgres >/dev/null 2>&1 && [ -n "$(docker compose ps -q
     warn "Skipping Postgres query check (.env POSTGRES_USER/POSTGRES_DB missing)"
   elif docker compose exec -T postgres psql -U "$PG_USER_FROM_ENV" -d "$PG_DB_FROM_ENV" -c "SELECT 1;" >/dev/null 2>&1; then
     pass "Postgres responds to SELECT 1"
+    if docker compose exec -T postgres psql -U "$PG_USER_FROM_ENV" -d "$PG_DB_FROM_ENV" -At -c "SELECT 1 FROM pg_available_extensions WHERE name = 'vector';" | grep -qx 1; then
+      pass "pgvector extension is available"
+    else
+      warn "pgvector extension is not available in this Postgres image"
+    fi
   else
     warn "Postgres query check failed (.env user/db: $PG_USER_FROM_ENV / $PG_DB_FROM_ENV)"
   fi
