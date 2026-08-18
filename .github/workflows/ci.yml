@@ -5,9 +5,13 @@ on:
     branches:
       - main
       - stage
+  push:
+    branches:
+      - main
+      - stage
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
